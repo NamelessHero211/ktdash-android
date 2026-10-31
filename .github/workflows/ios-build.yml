@@ -1,0 +1,33 @@
+name: iPhone build and pictures
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - name: Download iPhone source project
+        run: |
+          curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/ios-1/KTDash-iPhone-Source.zip --output source.zip
+          echo '74285b3902f1123373e4c8f363eeb7cf627ae916f42cc35160ac5191dbe73178  source.zip' | shasum -a 256 -c
+          unzip -q source.zip
+      - name: Build device IPA and exercise WebKit on iPhone simulator
+        run: bash KTDash-iPhone/ci/build.sh
+      - name: Record checks
+        if: always()
+        run: |
+          tail -100 KTDash-iPhone/build-device.log || true
+          tail -120 KTDash-iPhone/build-tests.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: KTDash-iPhone-build
+          path: |
+            KTDash-iPhone/build/KTDash-iPhone-unsigned.ipa
+            KTDash-iPhone/build/SHA256SUMS-iPhone.txt
+            KTDash-iPhone/build/TestResults.xcresult
+            KTDash-iPhone/build/screenshots/
+            KTDash-iPhone/build-device.log
+            KTDash-iPhone/build-tests.log
