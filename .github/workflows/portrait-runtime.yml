@@ -133,9 +133,7 @@ jobs:
           if [ "$RUNTIME_BUILD" = "published-1.9" ]; then
             curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/android-10/KTDash.apk --output downloaded.apk || exit $?
           elif [ "$RUNTIME_BUILD" = "candidate" ]; then
-            asset_url=$(gh api repos/NamelessHero211/ktdash-android/releases --jq '.[] | select(.draft == true and .name == "KTDash Android 1.10") | .assets[] | select(.name == "KTDash.apk") | .url')
-            [ -n "$asset_url" ] || exit 1
-            gh api -H 'Accept: application/octet-stream' "$asset_url" > downloaded.apk || exit $?
+            curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/android-11/KTDash.apk --output downloaded.apk || exit $?
           else
             cp app/build/outputs/apk/release/app-release-unsigned.apk downloaded.apk
           fi
