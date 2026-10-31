@@ -1,0 +1,106 @@
+name: Android updates
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '23 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.upstream.outputs.build }}
+      sha: ${{ steps.upstream.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check upstream changes
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 ci/check_upstream.py
+
+  validate:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - uses: android-actions/setup-android@v3
+      - name: Compile Android app without release secrets
+        run: |
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          gradle --no-daemon assembleDebug
+
+  release:
+    needs: [check, validate]
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check signing configuration
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            echo 'Signing secrets are not configured. No APK will be published.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/ktdash.jks"
+          fi
+      - uses: actions/setup-java@v4
+        if: steps.signing.outputs.ready == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.signing.outputs.ready == 'true'
+        with:
+          gradle-version: '8.9'
+      - uses: android-actions/setup-android@v3
+        if: steps.signing.outputs.ready == 'true'
+      - name: Build and verify signed APK
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/ktdash.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          code=$((100000 + GITHUB_RUN_NUMBER))
+          echo "APP_CODE=$code" >> "$GITHUB_ENV"
+          gradle --no-daemon assembleRelease -PappVersionCode="$code" -PappVersionName="1.2.$GITHUB_RUN_NUMBER"
+          cp app/build/outputs/apk/release/app-release.apk KTDash.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose KTDash.apk
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c 4 KTDash.apk
+          sha256sum KTDash.apk > SHA256SUMS.txt
+      - name: Publish Android update
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          printf 'Unofficial KTDash Android wrapper.\n\nInstall KTDash.apk over the existing app. Android asks you to confirm installation.\n\nThe app opens the live website; upstream PHP/database code is not bundled.\n\nUpstream v2 commit: https://github.com/vjosset/ktdash/commit/%s\n<!-- upstream:%s -->\n' "$UPSTREAM_SHA" "$UPSTREAM_SHA" > release-notes.txt
+          gh release create "android-$APP_CODE" KTDash.apk SHA256SUMS.txt --title "KTDash Android 1.2.$GITHUB_RUN_NUMBER" --notes-file release-notes.txt --latest
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/ktdash.jks"
