@@ -10,6 +10,9 @@ final class AppTheme {
         ".bg-card{background-color:#cf5718!important;border-color:#7b2906!important;color:#000!important;}" +
         ".bg-card :is(h1,h2,h3,h4,h5,h6,p,a,span,label,li,small,strong,em,td,th,div)," +
         ".bg-card [class*='text-']{color:#000!important;}" +
+        ".bg-card,.bg-card :is(h1,h2,h3,h4,h5,h6,p,a,span,label,li,small,strong,em,td,th,div)," +
+        "button,[role='button'],input,select,textarea{font-weight:700!important;font-synthesis:weight;}" +
+        "a,button,[role='button']{touch-action:manipulation;}" +
         ".bg-card :is(.bg-background,.bg-black){background-color:#e58b55!important;}" +
         "button,[role='button'],.bg-main,a.bg-main,input[type='submit']{" +
         "background-color:#cf5718!important;color:#000!important;border:2px solid #000!important;}" +
