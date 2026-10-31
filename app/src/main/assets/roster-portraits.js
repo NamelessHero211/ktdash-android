@@ -41,6 +41,7 @@
   }
   function scanAll() { fullScan = true; schedule(); }
   function loadCatalog() {
+    if (window.__ktdashModelCatalog) catalog = window.__ktdashModelCatalog;
     if (catalog || catalogAttempts >= 3) return;
     catalogAttempts++;
     try {
@@ -55,9 +56,16 @@
     }
   }
   function atlasUrl(id) {
+    if (window.__ktdashAtlasData && window.__ktdashAtlasData[id]) return window.__ktdashAtlasData[id];
     if (atlases[id]) return atlases[id];
     try { var image = window.KTDashModelAssets.atlas(id); if (image && image.indexOf('data:image/webp;base64,') === 0) { atlases[id] = image; return image; } } catch (_) {}
     return '';
+  }
+  function retryPictures() {
+    catalogAttempts = 0;
+    if (catalogRetry) { clearTimeout(catalogRetry); catalogRetry = null; }
+    document.querySelectorAll('[data-ktdash-artwork]').forEach(function (figure) { figure.remove(); });
+    scanAll();
   }
   function teamDetails() {
     var links = document.querySelectorAll('a[href^="/killteams/"]'), fallback = null;
@@ -133,13 +141,14 @@
     var model = team && modelFor(card, team);
     var key = loadingCatalog ? (catalogAttempts >= 3 ? 'catalog-unavailable' : 'catalog-loading') : model ? model.id : team ? team.id : metadataRequest ? 'team-loading' : 'unavailable';
     var old = header.querySelector('[data-ktdash-artwork]');
-    if (old && old.dataset.ktdashArtwork === key) return;
+    if (old && old.dataset.ktdashArtwork === key && !old.dataset.ktdashRetry) return;
     if (old) old.remove();
     var figure = document.createElement('figure'); figure.className = 'ktdash-app-artwork'; figure.dataset.ktdashArtwork = key;
     var caption = document.createElement('figcaption');
     if (loadingCatalog) {
       var waiting = document.createElement('span'); waiting.className = 'ktdash-app-artwork-unavailable';
-      waiting.textContent = 'Loading photo…'; figure.appendChild(waiting); caption.textContent = 'Operative photo';
+      waiting.textContent = catalogAttempts >= 3 ? 'Photo unavailable' : 'Loading photo…'; figure.appendChild(waiting); caption.textContent = catalogAttempts >= 3 ? 'Tap to retry' : 'Operative photo';
+      if (catalogAttempts >= 3 && window.__ktdashPictureViewer) window.__ktdashPictureViewer.bind(figure, retryPictures, 'Retry operative pictures');
     } else if (model) {
       figure.title = 'Official miniature reference: ' + model.item.name;
       var tile = document.createElement('div'); tile.className = 'ktdash-app-model';
@@ -151,7 +160,12 @@
       tile.style.backgroundRepeat = 'no-repeat';
       tile.style.backgroundSize = model.sheet.width * scale + 'px ' + model.sheet.height * scale + 'px';
       tile.style.backgroundPosition = -model.item.x * scale + 'px ' + -model.item.y * scale + 'px';
-      caption.textContent = 'Model reference'; figure.appendChild(tile);
+      caption.textContent = imageData ? 'Tap to enlarge' : 'Tap to retry'; figure.appendChild(tile);
+      if (!imageData) figure.dataset.ktdashRetry = 'true';
+      if (window.__ktdashPictureViewer) window.__ktdashPictureViewer.bind(figure, function () {
+        if (imageData) window.__ktdashPictureViewer.open(imageData, model.item.name + ' — model reference', model);
+        else retryPictures();
+      }, imageData ? 'Enlarge ' + model.item.name + ' picture' : 'Retry ' + model.item.name + ' picture');
     } else if (team) {
       var heading = card.querySelector('h5'), name = heading ? heading.textContent.trim() : 'operative';
       figure.title = team.name + ' artwork — fallback for ' + name;
@@ -165,6 +179,9 @@
         else { var label = document.createElement('span'); label.className = 'ktdash-app-artwork-unavailable'; label.textContent = 'No artwork available'; image.replaceWith(label); }
       });
       image.src = urls[attempt++]; caption.textContent = 'Kill-team artwork'; figure.appendChild(image);
+      if (window.__ktdashPictureViewer) window.__ktdashPictureViewer.bind(figure, function () {
+        if (image.complete && image.naturalWidth) window.__ktdashPictureViewer.open(image.currentSrc || image.src, team.name + ' — team artwork fallback');
+      }, 'Enlarge kill-team artwork');
     } else {
       var label = document.createElement('span'); label.className = 'ktdash-app-artwork-unavailable';
       label.textContent = metadataRequest ? 'Loading photo…' : 'No photo available'; figure.appendChild(label); caption.textContent = 'Operative photo';
@@ -197,6 +214,7 @@
     if (window.__ktdashRosterNavigation) window.__ktdashRosterNavigation.check();
     var match = location.pathname.match(routePattern), id = match ? match[1] : '';
     if (id !== route) {
+      if (window.__ktdashPictureViewer) window.__ktdashPictureViewer.close();
       if (metadataRequest) metadataRequest.abort();
       route = id; metadata = null; metadataAttempted = false; metadataRequest = null; dirty.clear(); fullScan = true; readPreferences();
     }
@@ -226,7 +244,7 @@
       });
     });
   });
-  window.__ktdashRosterPortraits = { refresh: scanAll, version: '1.8' };
+  window.__ktdashRosterPortraits = { refresh: scanAll, retry: retryPictures, version: '1.9' };
   window.addEventListener('popstate', scanAll); window.addEventListener('pageshow', scanAll); window.addEventListener('load', scanAll);
   document.addEventListener('DOMContentLoaded', function () { observe(); scanAll(); });
   window.addEventListener('storage', function (event) { if (event.key === 'settings') { readPreferences(); scanAll(); } });
