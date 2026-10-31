@@ -20,10 +20,14 @@ final class RosterPortraits {
             try {
                 if (script == null) {
                     StringBuilder source = new StringBuilder();
-                    try (InputStream input = context.getAssets().open("roster-portraits.js");
+                    for (String asset : new String[] { "models/catalog.json", "roster-navigation.js", "roster-portraits.js" }) {
+                    if (asset.endsWith(".json")) source.append("window.__ktdashModelCatalog=");
+                    try (InputStream input = context.getAssets().open(asset);
                          InputStreamReader reader = new InputStreamReader(input, StandardCharsets.UTF_8)) {
                         char[] buffer = new char[4096]; int count;
                         while ((count = reader.read(buffer)) != -1) source.append(buffer, 0, count);
+                    }
+                    source.append(';').append('\n');
                     }
                     script = source.toString();
                 }
