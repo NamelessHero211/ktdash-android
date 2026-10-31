@@ -1,0 +1,89 @@
+name: Upload iPhone build to TestFlight
+on:
+  workflow_dispatch:
+    inputs:
+      team_id:
+        description: Apple Developer Team ID
+        required: true
+      bundle_id:
+        description: Registered App Store Connect Bundle ID
+        required: true
+      build_number:
+        description: New increasing build number
+        required: true
+permissions:
+  contents: read
+jobs:
+  testflight:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      APPLE_TEAM_ID: ${{ inputs.team_id }}
+      APP_BUNDLE_ID: ${{ inputs.bundle_id }}
+      BUILD_NUMBER: ${{ inputs.build_number }}
+      IOS_CERT_P12_BASE64: ${{ secrets.IOS_CERT_P12_BASE64 }}
+      IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+      IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+      ASC_API_KEY_BASE64: ${{ secrets.ASC_API_KEY_BASE64 }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+    steps:
+      - name: Check publisher setup
+        run: |
+          python3 - <<'PY'
+          import os,re,sys
+          needed=['IOS_CERT_P12_BASE64','IOS_CERT_PASSWORD','IOS_PROFILE_BASE64','ASC_API_KEY_BASE64','ASC_KEY_ID','ASC_ISSUER_ID']
+          missing=[key for key in needed if not os.environ.get(key)]
+          if missing: sys.exit('Publisher must configure repository secrets: '+', '.join(missing))
+          if not re.fullmatch(r'[A-Z0-9]{10}',os.environ['APPLE_TEAM_ID']): sys.exit('Expected a 10-character Team ID')
+          if not re.fullmatch(r'[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+',os.environ['APP_BUNDLE_ID']): sys.exit('Invalid Bundle ID')
+          if not re.fullmatch(r'[1-9][0-9]*',os.environ['BUILD_NUMBER']): sys.exit('Build number must be a positive integer')
+          PY
+      - name: Select current Xcode and verified source
+        run: |
+          chosen=$(python3 -c 'import glob,re; paths=[p for p in glob.glob("/Applications/Xcode*.app") if "beta" not in p.lower()]; print(max(paths,key=lambda p:tuple(map(int,re.findall(r"\d+",p))) or (0,)))')
+          echo "DEVELOPER_DIR=$chosen/Contents/Developer" >> "$GITHUB_ENV"
+          curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/ios-1/KTDash-TestFlight-Source.zip --output source.zip
+          echo '21c6e7a6589cfab313a04a6176528b5b571ac0df4866c2949dd4586d820b4b74  source.zip' | shasum -a 256 -c
+          unzip -q source.zip
+      - name: Test WebKit and archive before signing
+        run: bash KTDash-iPhone/ci/build.sh
+      - name: Prepare temporary signing assets
+        run: |
+          python3 - <<'PY'
+          import os,base64,pathlib
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])
+          for key,name in [('IOS_CERT_P12_BASE64','distribution.p12'),('IOS_PROFILE_BASE64','distribution.mobileprovision'),('ASC_API_KEY_BASE64','AuthKey.p8')]:
+              path=root/name;path.write_bytes(base64.b64decode(os.environ[key],validate=True));path.chmod(0o600)
+          PY
+          keychain_password=$(openssl rand -hex 24)
+          echo "::add-mask::$keychain_password"
+          security create-keychain -p "$keychain_password" "$RUNNER_TEMP/ktdash-signing.keychain-db"
+          security set-keychain-settings -lut 21600 "$RUNNER_TEMP/ktdash-signing.keychain-db"
+          security unlock-keychain -p "$keychain_password" "$RUNNER_TEMP/ktdash-signing.keychain-db"
+          security import "$RUNNER_TEMP/distribution.p12" -k "$RUNNER_TEMP/ktdash-signing.keychain-db" -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$RUNNER_TEMP/ktdash-signing.keychain-db" > /dev/null
+          security list-keychains -d user -s "$RUNNER_TEMP/ktdash-signing.keychain-db" "$HOME/Library/Keychains/login.keychain-db"
+          security cms -D -i "$RUNNER_TEMP/distribution.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          python3 - <<'PY'
+          import os,plistlib,pathlib,shutil
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])
+          profile=plistlib.loads((root/'profile.plist').read_bytes())
+          assert profile['TeamIdentifier'][0]==os.environ['APPLE_TEAM_ID'],'Profile team does not match input'
+          expected=os.environ['APPLE_TEAM_ID']+'.'+os.environ['APP_BUNDLE_ID']
+          assert profile['Entitlements']['application-identifier']==expected,'Profile Bundle ID does not match input'
+          assert 'ProvisionedDevices' not in profile and not profile.get('ProvisionsAllDevices',False),'Use an App Store distribution profile'
+          folder=pathlib.Path.home()/'Library/MobileDevice/Provisioning Profiles';folder.mkdir(parents=True,exist_ok=True)
+          shutil.copyfile(root/'distribution.mobileprovision',folder/(profile['UUID']+'.mobileprovision'))
+          with open(os.environ['GITHUB_ENV'],'a') as out:
+              out.write('PROFILE_NAME='+profile['Name']+'\n')
+              out.write('ASC_KEY_PATH='+str(root/'AuthKey.p8')+'\n')
+              out.write('DISTRIBUTION_IDENTITY=Apple Distribution\n')
+          PY
+      - name: Sign and upload to App Store Connect
+        run: bash KTDash-iPhone/ci/testflight.sh
+      - name: Remove temporary signing assets
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/ktdash-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP/distribution.mobileprovision" "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/profile.plist"
