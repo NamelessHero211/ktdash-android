@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
         b.setAllCaps(false); b.setTextColor(Color.BLACK); b.setTextSize(14);
         b.setMinHeight(dp(48)); b.setPadding(dp(12),dp(8),dp(12),dp(8));
         GradientDrawable box = new GradientDrawable(); box.setColor(AppTheme.ORANGE);
-        box.setCornerRadius(dp(8)); box.setStroke(dp(1), 0xFF7B2906);
+        box.setCornerRadius(dp(8)); box.setStroke(dp(2), Color.BLACK);
         b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33000000), box, null));
     }
     @Override public void onCreate(Bundle state) {
@@ -189,3 +189,4 @@ public class MainActivity extends Activity {
         web.destroy(); super.onDestroy();
     }
 }
+
