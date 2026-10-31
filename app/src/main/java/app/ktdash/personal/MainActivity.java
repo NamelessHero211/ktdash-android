@@ -128,6 +128,9 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(ConsoleMessage message) {
+                return RosterPortraits.requestAsset(web, message.message()) || super.onConsoleMessage(message);
+            }
             @Override public void onProgressChanged(WebView view, int value) {
                 progress.setProgress(value);
                 // Keep the bar's space reserved so the page does not jump while loading.
