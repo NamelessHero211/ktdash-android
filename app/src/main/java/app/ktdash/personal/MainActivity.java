@@ -107,7 +107,7 @@ public class MainActivity extends Activity {
                 error.setVisibility(View.GONE); progress.setVisibility(View.VISIBLE);
             }
             @Override public void onPageFinished(WebView view, String url) {
-                if (trusted(Uri.parse(url))) AppTheme.apply(view);
+                if (trusted(Uri.parse(url))) { AppTheme.apply(view); RosterPortraits.apply(view); }
                 progress.setVisibility(View.INVISIBLE);
                 pageReady = !failed;
                 scheduleUpdateCheck();
