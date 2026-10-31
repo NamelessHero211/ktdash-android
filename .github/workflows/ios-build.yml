@@ -1,6 +1,12 @@
 name: iPhone build and pictures
 on:
   workflow_dispatch:
+    inputs:
+      source:
+        description: iPhone or TestFlight archive build
+        type: choice
+        default: testflight
+        options: [testflight, original]
 permissions:
   contents: read
 jobs:
@@ -8,10 +14,24 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 25
     steps:
-      - name: Download iPhone source project
+      - name: Select current Xcode
         run: |
-          curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/ios-1/KTDash-iPhone-Source.zip --output source.zip
-          echo '74285b3902f1123373e4c8f363eeb7cf627ae916f42cc35160ac5191dbe73178  source.zip' | shasum -a 256 -c
+          chosen=$(python3 -c 'import glob,re; paths=[p for p in glob.glob("/Applications/Xcode*.app") if "beta" not in p.lower()]; print(max(paths,key=lambda p:tuple(map(int,re.findall(r"\d+",p))) or (0,)))')
+          echo "DEVELOPER_DIR=$chosen/Contents/Developer" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$chosen/Contents/Developer" xcodebuild -version
+      - name: Download iPhone source project
+        env:
+          SOURCE_CHOICE: ${{ inputs.source }}
+        run: |
+          if [ "$SOURCE_CHOICE" = 'original' ]; then
+            asset='KTDash-iPhone-Source.zip'
+            checksum='74285b3902f1123373e4c8f363eeb7cf627ae916f42cc35160ac5191dbe73178'
+          else
+            asset='KTDash-TestFlight-Source.zip'
+            checksum='21c6e7a6589cfab313a04a6176528b5b571ac0df4866c2949dd4586d820b4b74'
+          fi
+          curl --fail --location --silent --show-error "https://github.com/NamelessHero211/ktdash-android/releases/download/ios-1/$asset" --output source.zip
+          echo "$checksum  source.zip" | shasum -a 256 -c
           unzip -q source.zip
       - name: Build device IPA and exercise WebKit on iPhone simulator
         run: bash KTDash-iPhone/ci/build.sh
@@ -19,6 +39,7 @@ jobs:
         if: always()
         run: |
           tail -100 KTDash-iPhone/build-device.log || true
+          tail -100 KTDash-iPhone/build-archive.log || true
           tail -120 KTDash-iPhone/build-tests.log || true
       - uses: actions/upload-artifact@v4
         if: always()
@@ -27,6 +48,7 @@ jobs:
           path: |
             KTDash-iPhone/build/KTDash-iPhone-unsigned.ipa
             KTDash-iPhone/build/SHA256SUMS-iPhone.txt
+            KTDash-iPhone/build/KTDash-unsigned.xcarchive.zip
             KTDash-iPhone/build/TestResults.xcresult
             KTDash-iPhone/build/screenshots/
             KTDash-iPhone/build-device.log
