@@ -43,8 +43,8 @@ jobs:
         run: |
           chosen=$(python3 -c 'import glob,re; paths=[p for p in glob.glob("/Applications/Xcode*.app") if "beta" not in p.lower()]; print(max(paths,key=lambda p:tuple(map(int,re.findall(r"\d+",p))) or (0,)))')
           echo "DEVELOPER_DIR=$chosen/Contents/Developer" >> "$GITHUB_ENV"
-          curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/ios-1/KTDash-TestFlight-Source.zip --output source.zip
-          echo '21c6e7a6589cfab313a04a6176528b5b571ac0df4866c2949dd4586d820b4b74  source.zip' | shasum -a 256 -c
+          curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/ios-1/KTDash-TestFlight-Source-r2.zip --output source.zip
+          echo 'a0dc3ee30be8e189e127bb9cee38517928289303568d3e6559622dcfdbee8dcc  source.zip' | shasum -a 256 -c
           unzip -q source.zip
       - name: Test WebKit and archive before signing
         run: bash KTDash-iPhone/ci/build.sh
