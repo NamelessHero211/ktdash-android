@@ -165,15 +165,15 @@
     }
     var broken = image && (image.dataset.ktdashFailedPortrait === image.getAttribute('src') || (image.complete && image.naturalWidth === 0));
     if (image && !broken) {
-      image.parentElement.classList.remove('ktdash-app-broken-portrait'); card.classList.remove('ktdash-app-portrait');
+      image.parentElement.classList.toggle('ktdash-app-broken-portrait', false); card.classList.toggle('ktdash-app-portrait', false);
       var old = header.querySelector('[data-ktdash-artwork]'); if (old) old.remove();
     } else {
-      if (image) image.parentElement.classList.add('ktdash-app-broken-portrait');
-      card.classList.add('ktdash-app-portrait'); addArtwork(card, header, team);
+      if (image) image.parentElement.classList.toggle('ktdash-app-broken-portrait', true);
+      card.classList.toggle('ktdash-app-portrait', true); addArtwork(card, header, team);
     }
   }
   function observe() {
-    if (document.documentElement) observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-font'] });
+    if (document.documentElement) observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['data-font'] });
   }
   function refresh() {
     if (window.__ktdashRosterNavigation) window.__ktdashRosterNavigation.check();
@@ -199,6 +199,7 @@
     records.forEach(function (record) {
       if (record.type === 'attributes') { scanAll(); return; }
       var target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+      if (record.type === 'characterData' && (!target || !target.closest('h5 span.truncate,.text-xs.text-left,.text-muted.text-xs'))) return;
       var card = target && target.closest('.opcard'); if (card) schedule(card);
       record.addedNodes.forEach(function (node) {
         if (node.nodeType !== 1) return;
