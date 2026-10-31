@@ -41,7 +41,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - name: Compile Android app without release secrets
         run: |
           sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
@@ -77,7 +77,7 @@ jobs:
         if: steps.signing.outputs.ready == 'true'
         with:
           gradle-version: '8.9'
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         if: steps.signing.outputs.ready == 'true'
       - name: Build and verify signed APK
         if: steps.signing.outputs.ready == 'true'
@@ -104,3 +104,4 @@ jobs:
       - name: Remove temporary signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/ktdash.jks"
+
