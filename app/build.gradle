@@ -6,8 +6,8 @@ android {
         applicationId 'app.ktdash.personal'
         minSdk 26
         targetSdk 35
-        versionCode providers.gradleProperty('appVersionCode').getOrElse('6').toInteger()
-        versionName providers.gradleProperty('appVersionName').getOrElse('1.5')
+        versionCode providers.gradleProperty('appVersionCode').getOrElse('7').toInteger()
+        versionName providers.gradleProperty('appVersionName').getOrElse('1.6')
     }
     signingConfigs {
         release {
