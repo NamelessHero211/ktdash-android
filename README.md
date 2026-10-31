@@ -36,3 +36,9 @@ APK signatures, package metadata, alignment, and local Java/DEX compilation have
 
 Version 1.5 shows uploaded operative portraits in deployed and reserve roster cards. When an operative has no photo, it shows the roster's kill-team artwork with a visible 'Kill-team artwork' label. Missing team art shows 'No artwork available'. Images load lazily; the app reads roster metadata once per roster visit and does not upload or alter any roster photos. This enables the website's portrait display preference locally in the app.
 
+
+Version 1.6 makes the background of roster cards tappable as well as their picture/name. It shows immediate Opening roster feedback, suppresses repeated taps to the same pending roster, and falls back to loading that same URL after six seconds if client navigation has stalled. Menu buttons and other controls keep their normal actions. Website/server response time is outside the wrapper's control.
+
+Black lettering in cards, web controls and native buttons is bold. The portrait observer no longer scans the page for every CSS class change.
+
+For missing operative photos, the app uses bundled official miniature references matched to the roster's team and operative type. These are representative models for that type, and may show a different legal weapon build than the roster's chosen loadout. Uploaded photos take priority. Types without a verified reference retain labeled kill-team artwork. Reference images and source links are documented in MODEL-REFERENCES.md. Miniatures and images are copyright Games Workshop; this remains an unofficial app.
