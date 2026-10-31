@@ -1,0 +1,105 @@
+name: Android portrait runtime
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/portrait-runtime.yml'
+      - 'app/src/main/java/**'
+      - 'app/src/main/assets/**'
+permissions:
+  contents: read
+jobs:
+  webview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - uses: android-actions/setup-android@v4
+      - name: Prepare WebView instrumentation
+        run: |
+          cat >> app/build.gradle <<'GRADLE'
+          android.defaultConfig.testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+          dependencies {
+              androidTestImplementation 'androidx.test:runner:1.6.2'
+              androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+          }
+          GRADLE
+          mkdir -p app/src/androidTest/java/app/ktdash/personal
+          cat > app/src/androidTest/java/app/ktdash/personal/PortraitRuntimeTest.java <<'JAVA'
+          package app.ktdash.personal;
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.webkit.WebView;
+          import androidx.test.platform.app.InstrumentationRegistry;
+          import androidx.test.ext.junit.runners.AndroidJUnit4;
+          import org.junit.Test;
+          import org.junit.runner.RunWith;
+          import static org.junit.Assert.*;
+          import java.util.concurrent.*;
+          import java.util.concurrent.atomic.AtomicReference;
+          @RunWith(AndroidJUnit4.class)
+          public class PortraitRuntimeTest {
+              private String evaluate(WebView web, String js) throws Exception {
+                  AtomicReference<String> result = new AtomicReference<>();
+                  CountDownLatch latch = new CountDownLatch(1);
+                  InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> web.evaluateJavascript(js, value -> {result.set(value);latch.countDown();}));
+                  assertTrue("WebView evaluation timed out",latch.await(15,TimeUnit.SECONDS)); return result.get();
+              }
+              @Test public void miniatureAssetsInActualWebView() throws Exception {
+                  android.app.Instrumentation instrument = InstrumentationRegistry.getInstrumentation();
+                  Activity activity = instrument.startActivitySync(new Intent(instrument.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                  java.lang.reflect.Field field=MainActivity.class.getDeclaredField("web");field.setAccessible(true);WebView web=(WebView)field.get(activity);
+                  String html="<html><body data-font='test'><a href='/killteams/CHAOS-NC'>Nemesis Claw</a>";
+                  for(String type:new String[]{"Visionary","Fearmonger","Skinthief","Heavy Gunner"}) html+="<div class='opcard'><div class='grid'><div class='col-span-4'><h5><span class='truncate'>"+type+"</span></h5><div class='text-xs text-left'>"+type+"</div></div></div><div class='uppercase'><em>NEMESIS CLAW, CHAOS, "+type+"</em></div></div>";
+                  html+="</body></html>";final String fixture=html;
+                  instrument.runOnMainSync(()->web.loadDataWithBaseURL("https://ktdash.app/rosters/runtime-probe",fixture,"text/html","UTF-8",null));
+                  String report="";
+                  for(int i=0;i<40;i++){
+                      Thread.sleep(250);
+                      report=evaluate(web,"JSON.stringify({bridge:typeof KTDashModelAssets,catalog:(function(){try{return KTDashModelAssets.catalog().length}catch(e){return String(e)}})(),models:document.querySelectorAll('.ktdash-app-model').length,loading:Array.from(document.querySelectorAll('.ktdash-app-artwork')).map(x=>x.textContent),version:window.__ktdashRosterPortraits&&window.__ktdashRosterPortraits.version})");
+                      if(report.contains("\\\"models\\\":4"))break;
+                  }
+                  android.util.Log.i("PortraitRuntime",report);
+                  assertTrue("Native WebView portrait report: "+report,report.contains("\\\"models\\\":4"));
+                  String image=evaluate(web,"(function(){var n=document.querySelector('.ktdash-app-model');return n&&n.style.backgroundImage.indexOf('data:image/webp;base64,')>=0})()");
+                  assertEquals("Embedded image missing", "true",image);
+                  instrument.runOnMainSync(()->activity.finish());
+              }
+          }
+          JAVA
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise app in Android WebView
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: gradle --no-daemon -Pandroid.useAndroidX=true connectedDebugAndroidTest
+      - name: Record runtime results
+        if: always()
+        run: |
+          adb logcat -d -s PortraitRuntime:I chromium:E > webview-runtime.log || true
+          cat webview-runtime.log
+          find app/build/outputs/androidTest-results -name '*.xml' -exec cat {} \; || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: portrait-runtime-results
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            webview-runtime.log
