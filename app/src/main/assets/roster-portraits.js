@@ -5,6 +5,13 @@
   var route = null, metadata = null, metadataAttempted = false, metadataRequest = null;
   var catalog = window.__ktdashModelCatalog || null, catalogPromise = null, catalogRetry = null, catalogAttempts = 0, indexes = {}, atlases = {};
   var dirty = new Set(), fullScan = true, frame = null, watchedImages = new WeakSet(), preferences = {};
+  var assetRequests = {};
+  function requestAsset(token) {
+    var now = Date.now();
+    if (assetRequests[token] && now - assetRequests[token] < 2000) return;
+    assetRequests[token] = now;
+    try { console.info('KTDASH_PHOTO_ASSET:' + token); } catch (_) {}
+  }
   var prefixes = ['Aquilon ', 'Arbites ', 'Battleclade ', 'Brood Brother ', 'Death Korps ',
     'Fellgor ', 'Goremonger ', 'Hearthkyn ', 'Kabalite ', 'Kasrkin ', 'Kommando ', 'Kroot ',
     'Legionary ', 'Mandrake ', 'Navis ', 'Night Lord ', 'Novitiate ', 'Plague Marine ',
@@ -50,6 +57,7 @@
       if (!data || typeof data !== 'object' || !Object.keys(data).length) throw new Error('Empty model catalog');
       catalog = data; window.__ktdashModelCatalog = data; indexes = {};
     } catch (_) {
+      requestAsset('catalog');
       // Keep this retryable; never turn a transport failure into a permanent empty catalog.
       catalogPromise = true;
       if (!catalogRetry && catalogAttempts < 3) catalogRetry = setTimeout(function () { catalogRetry = null; scanAll(); }, 2000);
@@ -59,10 +67,13 @@
     if (window.__ktdashAtlasData && window.__ktdashAtlasData[id]) return window.__ktdashAtlasData[id];
     if (atlases[id]) return atlases[id];
     try { var image = window.KTDashModelAssets.atlas(id); if (image && image.indexOf('data:image/webp;base64,') === 0) { atlases[id] = image; return image; } } catch (_) {}
+    requestAsset('atlas:' + id);
     return '';
   }
   function retryPictures() {
     catalogAttempts = 0;
+    assetRequests = {};
+    if (!catalog) requestAsset('catalog');
     if (catalogRetry) { clearTimeout(catalogRetry); catalogRetry = null; }
     document.querySelectorAll('[data-ktdash-artwork]').forEach(function (figure) { figure.remove(); });
     scanAll();
@@ -77,8 +88,8 @@
       if (!fallback) fallback = team;
     }
     if (metadata && catalog && catalog[metadata.id]) return metadata;
-    var tags = document.querySelector('.opcard > .uppercase em, .opcard .uppercase em');
-    var keywords = tags ? tags.textContent.split(',').map(normalize) : [];
+    var tags = document.querySelector('.opcard .uppercase em') || document.querySelector('.opcard > .uppercase');
+    var keywords = tags ? tags.textContent.replace(/^\s*\d+\s*/, '').split(',').map(normalize) : [];
     var found = catalog ? Object.keys(catalog).filter(function (id) { return keywords.indexOf(normalize(catalog[id].name)) !== -1; }) : [];
     if (found.length === 1) return { id: found[0], name: catalog[found[0]].name, custom: false };
     return metadata || fallback;
@@ -244,7 +255,7 @@
       });
     });
   });
-  window.__ktdashRosterPortraits = { refresh: scanAll, retry: retryPictures, version: '1.9' };
+  window.__ktdashRosterPortraits = { refresh: scanAll, retry: retryPictures, version: '1.10' };
   window.addEventListener('popstate', scanAll); window.addEventListener('pageshow', scanAll); window.addEventListener('load', scanAll);
   document.addEventListener('DOMContentLoaded', function () { observe(); scanAll(); });
   window.addEventListener('storage', function (event) { if (event.key === 'settings') { readPreferences(); scanAll(); } });
