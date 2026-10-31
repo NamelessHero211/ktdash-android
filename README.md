@@ -8,7 +8,11 @@ Download `KTDash.apk` from this repository's [latest release](https://github.com
 
 The app checks this repository's latest Android release when opened, at most once every 12 hours. The **Updates** button checks immediately. When a newer version exists, it offers an APK download in your browser. Open that download to install it; Android requires your confirmation. This does not silently install apps in the background.
 
-Website changes appear live without an APK update. This app needs the website and an internet connection. It does not include KTDash's database or offer a self-contained offline edition. The Browser button is available for printing and features or login providers that require a full browser.
+Website changes appear live without an APK update. This app needs the website and an internet connection. It does not include KTDash's database or offer a self-contained offline edition.
+
+Version 1.3 removes the top Browser button. Cookie persistence runs off the UI thread, automatic update checks wait until the page has loaded, rotation and window resizing preserve the current page, and the loading indicator reserves its space to avoid page jumps. Website rendering and network speed still depend on the device, Android System WebView, and KTDash's servers; performance has not been benchmarked on a phone.
+
+Native controls and the website's cards, buttons, and form fields use orange boxes with black lettering. The primary orange (#E84F0B) is sampled from the website logo. The theme is applied inside this app only.
 
 ## Automated releases
 
