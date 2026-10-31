@@ -12,7 +12,7 @@ Website changes appear live without an APK update. This app needs the website an
 
 Version 1.3 removes the top Browser button. Cookie persistence runs off the UI thread, automatic update checks wait until the page has loaded, rotation and window resizing preserve the current page, and the loading indicator reserves its space to avoid page jumps. Website rendering and network speed still depend on the device, Android System WebView, and KTDash's servers; performance has not been benchmarked on a phone.
 
-Native controls and the website's cards, buttons, and form fields use orange boxes with black lettering. The primary orange (#E84F0B) is sampled from the website logo. The theme is applied inside this app only.
+Native controls and the website's cards, buttons, and form fields use orange boxes with black lettering. Version 1.4 uses a deeper burnt orange (#CF5718), with approximately 5:1 contrast against black lettering. Buttons have solid black borders (2 CSS pixels in the web content and 2dp in native controls). The theme is applied inside this app only.
 
 ## Automated releases
 
@@ -32,3 +32,4 @@ GitHub schedules may run late and public repositories' scheduled workflows can b
 Use Java 17, Android SDK 35, and Gradle 8.9. This project uses Android Gradle Plugin 8.7.3 and no third-party runtime libraries. Open this directory in Android Studio or run `gradle assembleDebug`. For a release, set `ANDROID_KEYSTORE_PATH` and `ANDROID_KEYSTORE_PASSWORD`, then run `gradle assembleRelease`. CI assigns increasing version codes based on its run number.
 
 APK signatures, package metadata, alignment, and local Java/DEX compilation have been checked. Runtime login, navigation, uploads, downloads, and update prompts still need on-device verification.
+
