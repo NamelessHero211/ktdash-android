@@ -1,14 +1,11 @@
 name: Android portrait runtime
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/portrait-runtime.yml'
-      - 'app/src/main/java/**'
-      - 'app/src/main/assets/**'
 permissions:
   contents: read
+concurrency:
+  group: portrait-runtime
+  cancel-in-progress: true
 jobs:
   webview:
     runs-on: ubuntu-latest
@@ -53,29 +50,68 @@ jobs:
                   InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> web.evaluateJavascript(js, value -> {result.set(value);latch.countDown();}));
                   assertTrue("WebView evaluation timed out",latch.await(15,TimeUnit.SECONDS)); return result.get();
               }
-              @Test public void miniatureAssetsInActualWebView() throws Exception {
+              @Test public void livePublicRoster() throws Exception {
+                  android.app.Instrumentation instrument=InstrumentationRegistry.getInstrumentation();
+                  Activity activity=instrument.startActivitySync(new Intent(instrument.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                  java.lang.reflect.Field field=MainActivity.class.getDeclaredField("web");field.setAccessible(true);WebView web=(WebView)field.get(activity);
+                  instrument.runOnMainSync(()->web.loadUrl("https://ktdash.app/rosters/s1TYJs4Z"));
+                  String state="";
+                  for(int i=0;i<90;i++){
+                      Thread.sleep(500);
+                      state=evaluate(web,"(function(){var cards=document.querySelectorAll('.opcard'),models=document.querySelectorAll('.ktdash-app-model'),uploaded=Array.from(document.querySelectorAll('.opcard img[src*=\"/api/ops/\"][src*=\"/portrait\"]')).filter(function(img){return img.complete&&img.naturalWidth>0});return cards.length>0&&models.length+uploaded.length>=cards.length})()");
+                      if("true".equals(state))break;
+                  }
+                  assertEquals("Live roster must show a picture for every operative: "+evaluate(web,"JSON.stringify({url:location.href,cards:document.querySelectorAll('.opcard').length,models:document.querySelectorAll('.ktdash-app-model').length,text:document.querySelector('.ktdash-app-artwork')&&document.querySelector('.ktdash-app-artwork').textContent})"),"true",state);
+                  instrument.runOnMainSync(()->activity.finish());
+              }
+              @Test public void withNativeBridge() throws Exception { exercise(false); }
+              @Test public void withoutNativeBridge() throws Exception { exercise(true); }
+              private void exercise(boolean disableBridge) throws Exception {
                   android.app.Instrumentation instrument = InstrumentationRegistry.getInstrumentation();
                   Activity activity = instrument.startActivitySync(new Intent(instrument.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
                   java.lang.reflect.Field field=MainActivity.class.getDeclaredField("web");field.setAccessible(true);WebView web=(WebView)field.get(activity);
+                  instrument.waitForIdleSync();
+                  instrument.runOnMainSync(()->{web.stopLoading();if(disableBridge)web.removeJavascriptInterface("KTDashModelAssets");});
                   String html="<html><body data-font='test'><a href='/killteams/CHAOS-NC'>Nemesis Claw</a>";
                   for(String type:new String[]{"Visionary","Fearmonger","Skinthief","Heavy Gunner"}) html+="<div class='opcard'><div class='grid'><div class='col-span-4'><h5><span class='truncate'>"+type+"</span></h5><div class='text-xs text-left'>"+type+"</div></div></div><div class='uppercase'><em>NEMESIS CLAW, CHAOS, "+type+"</em></div></div>";
                   html+="</body></html>";final String fixture=html;
-                  instrument.runOnMainSync(()->web.loadDataWithBaseURL("https://ktdash.app/rosters/runtime-probe",fixture,"text/html","UTF-8",null));
-                  String report="";
+                  instrument.runOnMainSync(()->web.loadDataWithBaseURL("https://ktdash.app/rosters/runtime-probe",fixture,"text/html","UTF-8","https://ktdash.app/rosters/runtime-probe"));
+                  long began=android.os.SystemClock.elapsedRealtime(); String report="";
                   for(int i=0;i<40;i++){
                       Thread.sleep(250);
                       report=evaluate(web,"JSON.stringify({bridge:typeof KTDashModelAssets,catalog:(function(){try{return KTDashModelAssets.catalog().length}catch(e){return String(e)}})(),models:document.querySelectorAll('.ktdash-app-model').length,loading:Array.from(document.querySelectorAll('.ktdash-app-artwork')).map(x=>x.textContent),version:window.__ktdashRosterPortraits&&window.__ktdashRosterPortraits.version})");
-                      if(report.contains("\\\"models\\\":4"))break;
+                      if("4".equals(evaluate(web,"Array.from(document.querySelectorAll('.ktdash-app-model')).filter(function(n){return n.style.backgroundImage.indexOf('data:image/webp;base64,')>=0}).length")))break;
                   }
                   android.util.Log.i("PortraitRuntime",report);
-                  assertTrue("Native WebView portrait report: "+report,report.contains("\\\"models\\\":4"));
+                  assertEquals("Native WebView portrait report: "+report,"4",evaluate(web,"document.querySelectorAll('.ktdash-app-model').length"));
+                  System.out.println("Four miniature references in "+(android.os.SystemClock.elapsedRealtime()-began)+" ms; bridge disabled="+disableBridge);
                   String image=evaluate(web,"(function(){var n=document.querySelector('.ktdash-app-model');return n&&n.style.backgroundImage.indexOf('data:image/webp;base64,')>=0})()");
                   assertEquals("Embedded image missing", "true",image);
+                  evaluate(web,"(function(){var uri=document.querySelector('.ktdash-app-model').style.backgroundImage.slice(5,-2);var img=new Image();img.onload=function(){document.body.setAttribute('data-decoded',String(img.naturalWidth))};img.src=uri;return true})()");
+                  for(int i=0;i<20 && !"\"1024\"".equals(evaluate(web,"document.body.getAttribute('data-decoded')"));i++)Thread.sleep(100);
+                  assertEquals("Bundled WebP must decode", "\"1024\"",evaluate(web,"document.body.getAttribute('data-decoded')"));
+                  evaluate(web,"document.querySelector('[data-ktdash-artwork]').click()");
+                  assertEquals("Picture viewer must open", "1",evaluate(web,"document.querySelectorAll('[role=dialog]').length"));
+                  String before=evaluate(web,"document.querySelector('[role=dialog] [role=img]').style.width");
+                  evaluate(web,"document.querySelector('[aria-label=\"Zoom in\"]').click()");
+                  assertNotEquals("Zoom must enlarge the miniature",before,evaluate(web,"document.querySelector('[role=dialog] [role=img]').style.width"));
+                  android.graphics.Bitmap screenshot=instrument.getUiAutomation().takeScreenshot();
+                  if(screenshot!=null){try(java.io.FileOutputStream out=new java.io.FileOutputStream(new java.io.File(activity.getExternalFilesDir(null),"portrait-runtime.png"))){screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}screenshot.recycle();}
+                  instrument.sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK); Thread.sleep(250);
+                  assertEquals("Android Back must close viewer", "0",evaluate(web,"document.querySelectorAll('[role=dialog]').length"));
                   instrument.runOnMainSync(()->activity.finish());
               }
           }
           JAVA
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+          cat > ci/run-portrait-runtime.sh <<'SH'
+          #!/bin/bash
+          gradle --no-daemon -Pandroid.useAndroidX=true connectedDebugAndroidTest
+          test_status=$?
+          timeout 10s adb logcat -d -s PortraitRuntime:I chromium:E > webview-runtime.log || true
+          timeout 10s adb pull /sdcard/Android/data/app.ktdash.personal/files/portrait-runtime.png portrait-runtime.png || true
+          exit "$test_status"
+          SH
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -84,16 +120,15 @@ jobs:
       - name: Exercise app in Android WebView
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
+          api-level: 35
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: gradle --no-daemon -Pandroid.useAndroidX=true connectedDebugAndroidTest
+          script: bash ci/run-portrait-runtime.sh
       - name: Record runtime results
         if: always()
         run: |
-          adb logcat -d -s PortraitRuntime:I chromium:E > webview-runtime.log || true
-          cat webview-runtime.log
+          cat webview-runtime.log || true
           find app/build/outputs/androidTest-results -name '*.xml' -exec cat {} \; || true
       - uses: actions/upload-artifact@v4
         if: always()
@@ -103,3 +138,4 @@ jobs:
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             webview-runtime.log
+            portrait-runtime.png
