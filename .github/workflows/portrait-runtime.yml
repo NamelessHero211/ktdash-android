@@ -1,6 +1,12 @@
 name: Android portrait runtime
 on:
   workflow_dispatch:
+    inputs:
+      build:
+        description: APK to verify
+        type: choice
+        default: published-1.9
+        options: [published-1.9, candidate, source]
 permissions:
   contents: read
 concurrency:
@@ -10,6 +16,9 @@ jobs:
   webview:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RUNTIME_BUILD: ${{ inputs.build }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -72,6 +81,12 @@ jobs:
                   java.lang.reflect.Field field=MainActivity.class.getDeclaredField("web");field.setAccessible(true);WebView web=(WebView)field.get(activity);
                   instrument.waitForIdleSync();
                   instrument.runOnMainSync(()->{web.stopLoading();if(disableBridge)web.removeJavascriptInterface("KTDashModelAssets");});
+                  String assetStatus;
+                  try(java.io.InputStream input=activity.getAssets().open("models/catalog.json")){
+                      int total=0,count;byte[] bytes=new byte[8192];while((count=input.read(bytes))!=-1)total+=count;
+                      assetStatus="APK catalog bytes="+total;
+                  }catch(Exception error){assetStatus="APK catalog error="+error;}
+                  android.util.Log.i("PortraitRuntime",assetStatus);
                   String html="<html><body data-font='test'><a href='/killteams/CHAOS-NC'>Nemesis Claw</a>";
                   for(String type:new String[]{"Visionary","Fearmonger","Skinthief","Heavy Gunner"}) html+="<div class='opcard'><div class='grid'><div class='col-span-4'><h5><span class='truncate'>"+type+"</span></h5><div class='text-xs text-left'>"+type+"</div></div></div><div class='uppercase'><em>NEMESIS CLAW, CHAOS, "+type+"</em></div></div>";
                   html+="</body></html>";final String fixture=html;
@@ -83,7 +98,7 @@ jobs:
                       if("4".equals(evaluate(web,"Array.from(document.querySelectorAll('.ktdash-app-model')).filter(function(n){return n.style.backgroundImage.indexOf('data:image/webp;base64,')>=0}).length")))break;
                   }
                   android.util.Log.i("PortraitRuntime",report);
-                  assertEquals("Native WebView portrait report: "+report,"4",evaluate(web,"document.querySelectorAll('.ktdash-app-model').length"));
+                  assertEquals("Native WebView portrait report: "+assetStatus+"; "+report,"4",evaluate(web,"document.querySelectorAll('.ktdash-app-model').length"));
                   System.out.println("Four miniature references in "+(android.os.SystemClock.elapsedRealtime()-began)+" ms; bridge disabled="+disableBridge);
                   String image=evaluate(web,"(function(){var n=document.querySelector('.ktdash-app-model');return n&&n.style.backgroundImage.indexOf('data:image/webp;base64,')>=0})()");
                   assertEquals("Embedded image missing", "true",image);
@@ -105,7 +120,23 @@ jobs:
           JAVA
           cat > ci/run-portrait-runtime.sh <<'SH'
           #!/bin/bash
-          gradle --no-daemon -Pandroid.useAndroidX=true connectedDebugAndroidTest
+          set -o pipefail
+          gradle --no-daemon -Pandroid.useAndroidX=true assembleDebug assembleDebugAndroidTest || exit $?
+          if [ "$RUNTIME_BUILD" = "published-1.9" ]; then
+            curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/android-10/KTDash.apk --output downloaded.apk || exit $?
+          elif [ "$RUNTIME_BUILD" = "candidate" ]; then
+            asset_url=$(gh api repos/NamelessHero211/ktdash-android/releases --jq '.[] | select(.draft == true and .name == "KTDash Android 1.10") | .assets[] | select(.name == "KTDash.apk") | .url')
+            [ -n "$asset_url" ] || exit 1
+            gh api -H 'Accept: application/octet-stream' "$asset_url" > downloaded.apk || exit $?
+          else
+            cp app/build/outputs/apk/debug/app-debug.apk downloaded.apk
+          fi
+          sha256sum downloaded.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out verified-target.apk downloaded.apk || exit $?
+          adb install -r verified-target.apk || exit $?
+          adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk || exit $?
+          adb shell am instrument -w -r app.ktdash.personal.test/androidx.test.runner.AndroidJUnitRunner | tee instrumentation.log
+          grep -Eq 'OK \(3 tests?\)' instrumentation.log
           test_status=$?
           timeout 10s adb logcat -d -s PortraitRuntime:I chromium:E > webview-runtime.log || true
           timeout 10s adb pull /sdcard/Android/data/app.ktdash.personal/files/portrait-runtime.png portrait-runtime.png || true
@@ -128,6 +159,7 @@ jobs:
       - name: Record runtime results
         if: always()
         run: |
+          cat instrumentation.log || true
           cat webview-runtime.log || true
           find app/build/outputs/androidTest-results -name '*.xml' -exec cat {} \; || true
       - uses: actions/upload-artifact@v4
@@ -137,5 +169,6 @@ jobs:
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
+            instrumentation.log
             webview-runtime.log
             portrait-runtime.png
