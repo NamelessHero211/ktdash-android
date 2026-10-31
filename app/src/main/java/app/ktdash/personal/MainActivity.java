@@ -35,9 +35,32 @@ public class MainActivity extends Activity {
     private boolean resumed;
     private boolean pageReady;
 
-    private boolean trusted(Uri uri) {
+    private static boolean trusted(Uri uri) {
         return "https".equalsIgnoreCase(uri.getScheme()) &&
             ("ktdash.app".equalsIgnoreCase(uri.getHost()) || "www.ktdash.app".equalsIgnoreCase(uri.getHost()));
+    }
+    private static WebResourceResponse bundledModel(android.content.Context context, WebResourceRequest request) {
+        if (!trusted(request.getUrl()) || !"GET".equals(request.getMethod())) return null;
+        String path = request.getUrl().getPath();
+        if (path == null) return null;
+        String asset; String mime; String encoding;
+        if (path.equals("/_ktdash_android/models/1.7/catalog.json")) {
+            asset = "models/catalog.json"; mime = "application/json"; encoding = "UTF-8";
+        } else if (path.matches("/_ktdash_android/models/1\\.7/[A-Z0-9-]+\\.webp")) {
+            asset = "models/" + path.substring(path.lastIndexOf('/') + 1); mime = "image/webp"; encoding = null;
+        } else return null;
+        try {
+            return new WebResourceResponse(mime, encoding, 200, "OK",
+                java.util.Collections.singletonMap("Cache-Control", "public, max-age=31536000, immutable"), context.getAssets().open(asset));
+        } catch (java.io.IOException ignored) {
+            return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found",
+                java.util.Collections.emptyMap(), new java.io.ByteArrayInputStream(new byte[0]));
+        }
+    }
+    private static final class ModelServiceWorkerClient extends ServiceWorkerClient {
+        private final android.content.Context context;
+        ModelServiceWorkerClient(android.content.Context context) { this.context = context.getApplicationContext(); }
+        @Override public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) { return bundledModel(context, request); }
     }
     private void external(Uri uri) {
         String scheme = uri.getScheme();
@@ -96,23 +119,10 @@ public class MainActivity extends Activity {
         settings.setSupportZoom(true); settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
+        ServiceWorkerController.getInstance().setServiceWorkerClient(new ModelServiceWorkerClient(getApplicationContext()));
         web.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                if (trusted(request.getUrl()) && "GET".equals(request.getMethod())) {
-                    String path = request.getUrl().getPath();
-                    if (path != null && path.matches("/_ktdash_android/models/1\\.6/[A-Z0-9-]+\\.webp")) {
-                        String name = path.substring(path.lastIndexOf('/') + 1);
-                        try {
-                            return new WebResourceResponse("image/webp", null, 200, "OK",
-                                java.util.Collections.singletonMap("Cache-Control", "public, max-age=31536000, immutable"),
-                                getAssets().open("models/" + name));
-                        } catch (java.io.IOException ignored) {
-                            return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found",
-                                java.util.Collections.emptyMap(), new java.io.ByteArrayInputStream(new byte[0]));
-                        }
-                    }
-                }
-                return null;
+                return bundledModel(getApplicationContext(), request);
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
@@ -131,7 +141,10 @@ public class MainActivity extends Activity {
                 scheduleUpdateCheck();
             }
             @Override public void onPageCommitVisible(WebView view, String url) {
-                if (trusted(Uri.parse(url))) AppTheme.apply(view);
+                if (trusted(Uri.parse(url))) { AppTheme.apply(view); RosterPortraits.apply(view); }
+            }
+            @Override public void doUpdateVisitedHistory(WebView view, String url, boolean isReload) {
+                if (trusted(Uri.parse(url))) RosterPortraits.apply(view);
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError detail) {
                 if (request.isForMainFrame()) showError();
