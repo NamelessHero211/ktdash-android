@@ -88,7 +88,7 @@ jobs:
           sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
           code=$((100000 + GITHUB_RUN_NUMBER))
           echo "APP_CODE=$code" >> "$GITHUB_ENV"
-          gradle --no-daemon assembleRelease -PappVersionCode="$code" -PappVersionName="1.4.$GITHUB_RUN_NUMBER"
+          gradle --no-daemon assembleRelease -PappVersionCode="$code" -PappVersionName="1.5.$GITHUB_RUN_NUMBER"
           cp app/build/outputs/apk/release/app-release.apk KTDash.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose KTDash.apk
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c 4 KTDash.apk
@@ -100,7 +100,7 @@ jobs:
           UPSTREAM_SHA: ${{ needs.check.outputs.sha }}
         run: |
           printf 'Unofficial KTDash Android wrapper.\n\nInstall KTDash.apk over the existing app. Android asks you to confirm installation.\n\nThe app opens the live website; upstream PHP/database code is not bundled.\n\nUpstream v2 commit: https://github.com/vjosset/ktdash/commit/%s\n<!-- upstream:%s -->\n' "$UPSTREAM_SHA" "$UPSTREAM_SHA" > release-notes.txt
-          gh release create "android-$APP_CODE" KTDash.apk SHA256SUMS.txt --title "KTDash Android 1.4.$GITHUB_RUN_NUMBER" --notes-file release-notes.txt --latest
+          gh release create "android-$APP_CODE" KTDash.apk SHA256SUMS.txt --title "KTDash Android 1.5.$GITHUB_RUN_NUMBER" --notes-file release-notes.txt --latest
       - name: Remove temporary signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/ktdash.jks"
