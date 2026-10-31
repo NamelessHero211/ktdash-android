@@ -11,37 +11,51 @@ import java.util.concurrent.Executors;
 
 final class RosterPortraits {
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
-    private static volatile String script;
+    private static volatile String navigation;
+    private static volatile String portraits;
+    private static final String REFRESH = "(function(){var n=window.__ktdashRosterNavigation,p=window.__ktdashRosterPortraits;" +
+        "if(n)n.check();if(p)p.refresh();return(n?1:0)+(p?2:0);})();";
 
     static void apply(WebView web) {
-        if (script != null) { run(web); return; }
+        if (navigation != null && portraits != null) { run(web); return; }
         Context context = web.getContext().getApplicationContext();
         LOADER.execute(() -> {
-            try {
-                if (script == null) {
-                    StringBuilder source = new StringBuilder();
-                    for (String asset : new String[] { "models/catalog.json", "roster-navigation.js", "roster-portraits.js" }) {
-                    if (asset.endsWith(".json")) source.append("window.__ktdashModelCatalog=");
-                    try (InputStream input = context.getAssets().open(asset);
-                         InputStreamReader reader = new InputStreamReader(input, StandardCharsets.UTF_8)) {
-                        char[] buffer = new char[4096]; int count;
-                        while ((count = reader.read(buffer)) != -1) source.append(buffer, 0, count);
-                    }
-                    source.append(';').append('\n');
-                    }
-                    script = source.toString();
-                }
-                web.post(() -> run(web));
-            } catch (java.io.IOException ignored) { /* The website remains usable. */ }
+            // One failed asset must not prevent the other independent feature from starting.
+            if (navigation == null) navigation = read(context, "roster-navigation.js");
+            if (portraits == null) portraits = read(context, "roster-portraits.js");
+            web.post(() -> run(web));
         });
     }
 
-    private static void run(WebView web) {
-        if (!web.isAttachedToWindow() || web.getUrl() == null || script == null) return;
-        Uri url = Uri.parse(web.getUrl());
-        if ("https".equalsIgnoreCase(url.getScheme()) &&
-            ("ktdash.app".equalsIgnoreCase(url.getHost()) || "www.ktdash.app".equalsIgnoreCase(url.getHost()))) {
-            web.evaluateJavascript(script, null);
+    private static String read(Context context, String asset) {
+        StringBuilder source = new StringBuilder();
+        try (InputStream input = context.getAssets().open(asset);
+             InputStreamReader reader = new InputStreamReader(input, StandardCharsets.UTF_8)) {
+            char[] buffer = new char[4096]; int count;
+            while ((count = reader.read(buffer)) != -1) source.append(buffer, 0, count);
+            return source.toString();
+        } catch (java.io.IOException error) {
+            android.util.Log.w("KTDash", "Could not read bundled app feature: " + asset, error);
+            return null;
         }
+    }
+
+    private static boolean ready(WebView web) {
+        if (!web.isAttachedToWindow() || web.getUrl() == null) return false;
+        Uri url = Uri.parse(web.getUrl());
+        return "https".equalsIgnoreCase(url.getScheme()) &&
+            ("ktdash.app".equalsIgnoreCase(url.getHost()) || "www.ktdash.app".equalsIgnoreCase(url.getHost()));
+    }
+
+    private static void run(WebView web) {
+        if (!ready(web)) return;
+        // Refresh existing hooks using a small message; do not repeatedly parse a catalog/code bundle.
+        web.evaluateJavascript(REFRESH, result -> {
+            if (!ready(web)) return;
+            int loaded = 0;
+            try { loaded = Integer.parseInt(result); } catch (Exception ignored) {}
+            if ((loaded & 1) == 0 && navigation != null) web.evaluateJavascript(navigation, null);
+            if ((loaded & 2) == 0 && portraits != null) web.evaluateJavascript(portraits, null);
+        });
     }
 }
