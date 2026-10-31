@@ -8,7 +8,6 @@
   var rosterPath = /^\/rosters\/([A-Za-z0-9_-]+)\/?$/;
   var currentId = '';
   var roster = null;
-  var pending = false;
   var timer = null;
   var request = null;
   var watchedImages = new WeakSet();
@@ -27,7 +26,7 @@
 
   function observe() {
     observer.observe(document.body || document.documentElement, {
-      childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'class']
+      childList: true, subtree: true, attributes: true, attributeFilter: ['src']
     });
   }
 
@@ -49,7 +48,6 @@
   }
 
   function fetchRoster(id) {
-    pending = true;
     var controller = new AbortController();
     request = controller;
     var timeout = setTimeout(function () { controller.abort(); }, 10000);
@@ -68,7 +66,6 @@
     }).finally(function () {
       clearTimeout(timeout);
       if (currentId === id && request === controller) {
-        pending = false;
         request = null;
         schedule();
       }
@@ -87,15 +84,55 @@
     return match ? { id: match[1], name: link.textContent.trim() || 'Kill-team', custom: false } : null;
   }
 
+  function modelFor(card, team) {
+    var catalog = window.__ktdashModelCatalog && window.__ktdashModelCatalog[team.id];
+    if (!catalog || !roster || !Array.isArray(roster.ops)) return null;
+    var primary = card.querySelector('h5 span.truncate');
+    var secondary = card.firstElementChild.querySelector('.text-xs.text-left');
+    var showTypeFirst = false;
+    try { showTypeFirst = !!JSON.parse(localStorage.getItem('settings') || '{}').showOpTypeFirst; } catch (_) {}
+    var type = showTypeFirst ? primary : secondary;
+    if (!type) type = primary || card.querySelector('h5');
+    if (!type) return null;
+    var name = type.textContent.trim().replace(/^\d+\.\s*/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (name.length < 3) return null;
+    var matches = {};
+    roster.ops.forEach(function (op) {
+      if (!op.opType || !catalog.ops[op.opTypeId]) return;
+      var full = op.opType.opTypeName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (full === name || full.endsWith(name)) matches[op.opTypeId] = catalog.ops[op.opTypeId];
+    });
+    var ids = Object.keys(matches);
+    return ids.length === 1 ? { id: ids[0], item: matches[ids[0]], catalog: catalog } : null;
+  }
+
   function addArtwork(card, header, team) {
+    var model = modelFor(card, team);
+    var key = model ? model.id : team.id;
     var old = header.querySelector('[data-ktdash-artwork]');
-    if (old && old.dataset.ktdashArtwork === team.id) return;
+    if (old && old.dataset.ktdashArtwork === key) return;
     if (old) old.remove();
     var heading = card.querySelector('h5');
     var name = heading ? heading.textContent.trim() : 'operative';
     var figure = document.createElement('figure');
     figure.className = 'ktdash-app-artwork';
-    figure.dataset.ktdashArtwork = team.id;
+    figure.dataset.ktdashArtwork = key;
+    if (model) {
+      figure.title = 'Official miniature reference: ' + model.item.name;
+      var tile = document.createElement('div');
+      tile.setAttribute('role', 'img');
+      tile.setAttribute('aria-label', model.item.name + ' official miniature reference');
+      var scale = 78 / 256;
+      tile.style.cssText = 'width:78px;height:78px;background-repeat:no-repeat;';
+      tile.style.backgroundImage = 'url("/_ktdash_android/models/1.6/' + team.id + '.webp")';
+      tile.style.backgroundSize = model.catalog.width * scale + 'px ' + model.catalog.height * scale + 'px';
+      tile.style.backgroundPosition = -model.item.x * scale + 'px ' + -model.item.y * scale + 'px';
+      var modelCaption = document.createElement('figcaption');
+      modelCaption.textContent = 'Model reference';
+      figure.appendChild(tile); figure.appendChild(modelCaption);
+      header.insertBefore(figure, header.firstChild);
+      return;
+    }
     figure.title = team.name + ' artwork — fallback for ' + name;
     var image = document.createElement('img');
     image.width = 78; image.height = 78;
@@ -123,11 +160,12 @@
   }
 
   function refresh() {
+    if (window.__ktdashRosterNavigation) window.__ktdashRosterNavigation.check();
     var match = location.pathname.match(rosterPath);
     var id = match ? match[1] : '';
     if (id !== currentId) {
       if (request) request.abort();
-      currentId = id; roster = null; pending = false; request = null;
+      currentId = id; roster = null; request = null;
       if (id) fetchRoster(id);
     }
     if (!id) return;
