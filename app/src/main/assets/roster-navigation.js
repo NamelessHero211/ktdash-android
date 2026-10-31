@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  if (window.__ktdashRosterNavigation) return;
+  if (window.__ktdashRosterNavigation) { window.__ktdashRosterNavigation.check(); return; }
   var pending = null;
   var timeout = null;
   var notice = null;
