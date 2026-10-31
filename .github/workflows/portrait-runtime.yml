@@ -15,6 +15,10 @@ concurrency:
 jobs:
   webview:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [35, 36]
     timeout-minutes: 20
     env:
       RUNTIME_BUILD: ${{ inputs.build }}
@@ -132,9 +136,11 @@ jobs:
             cp app/build/outputs/apk/debug/app-debug.apk downloaded.apk
           fi
           sha256sum downloaded.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out verified-target.apk downloaded.apk || exit $?
+          keytool -genkeypair -keystore runtime-signing.jks -storepass android -keypass android -alias runtime -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=Ephemeral Runtime Test' || exit $?
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks runtime-signing.jks --ks-key-alias runtime --ks-pass pass:android --key-pass pass:android --out verified-target.apk downloaded.apk || exit $?
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks runtime-signing.jks --ks-key-alias runtime --ks-pass pass:android --key-pass pass:android --out verified-tests.apk app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk || exit $?
           adb install -r verified-target.apk || exit $?
-          adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk || exit $?
+          adb install -r verified-tests.apk || exit $?
           adb shell am instrument -w -r app.ktdash.personal.test/androidx.test.runner.AndroidJUnitRunner | tee instrumentation.log
           grep -Eq 'OK \(3 tests?\)' instrumentation.log
           test_status=$?
@@ -151,7 +157,7 @@ jobs:
       - name: Exercise app in Android WebView
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           target: google_apis
           disable-animations: true
@@ -165,7 +171,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: portrait-runtime-results
+          name: portrait-runtime-results-${{ matrix.api-level }}
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
