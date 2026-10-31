@@ -32,8 +32,12 @@ final class AppUpdates {
             HttpURLConnection connection = null;
             String download = null;
             String version = null;
+            String installedName = "unknown";
             String message = "You have the latest published app version.";
             try {
+                android.content.pm.PackageInfo installedInfo = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0);
+                long installed = installedInfo.versionCode;
+                installedName = installedInfo.versionName;
                 connection = (HttpURLConnection) new URL(API).openConnection();
                 connection.setConnectTimeout(10000); connection.setReadTimeout(10000);
                 connection.setRequestProperty("Accept", "application/vnd.github+json");
@@ -57,7 +61,6 @@ final class AppUpdates {
                     String tag = release.getString("tag_name");
                     if (!release.optBoolean("draft") && !release.optBoolean("prerelease") && tag.matches("android-[0-9]{1,9}")) {
                         long published = Long.parseLong(tag.substring("android-".length()));
-                        long installed = activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0).versionCode;
                         if (published > installed) {
                             JSONArray assets = release.getJSONArray("assets");
                             for (int i = 0; i < assets.length(); i++) {
@@ -81,13 +84,14 @@ final class AppUpdates {
             }
             final String link = download;
             final String releaseName = version;
-            final String result = message;
+            final String result = "Installed version: " + installedName + ". " + message;
+            final String currentVersion = installedName;
             activity.runOnUiThread(() -> {
                 checking = false;
                 if (activity.isFinishing() || activity.isDestroyed()) return;
                 if (link != null) {
                     new AlertDialog.Builder(activity).setTitle("KTDash update available")
-                        .setMessage(releaseName + " is available. Download the APK, then open it to install the update. Your app data is kept.")
+                        .setMessage("Installed version: " + currentVersion + ". " + releaseName + " is available. Download the APK, then open it to install the update. Your app data is kept.")
                         .setPositiveButton("Download APK", (dialog, which) -> {
                             try { activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(link))); }
                             catch (android.content.ActivityNotFoundException e) {
