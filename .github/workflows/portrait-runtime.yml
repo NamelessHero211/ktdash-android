@@ -37,6 +37,7 @@ jobs:
         run: |
           cat >> app/build.gradle <<'GRADLE'
           android.defaultConfig.testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
+          android.buildTypes.release.signingConfig = null
           dependencies {
               androidTestImplementation 'androidx.test:runner:1.6.2'
               androidTestImplementation 'androidx.test.ext:junit:1.2.1'
@@ -91,9 +92,12 @@ jobs:
                       assetStatus="APK catalog bytes="+total;
                   }catch(Exception error){assetStatus="APK catalog error="+error;}
                   android.util.Log.i("PortraitRuntime",assetStatus);
-                  String html="<html><body data-font='test'><a href='/killteams/CHAOS-NC'>Nemesis Claw</a>";
+                  String header=disableBridge?"<script>window.fetch=function(){return new Promise(function(resolve){setTimeout(function(){resolve({ok:true,json:function(){return Promise.resolve({killteamId:'CHAOS-NC',killteam:{killteamName:'Nemesis Claw'}})}})},3500)})}</script>":"<a href='/killteams/CHAOS-NC'>Nemesis Claw</a>";
+                  String html="<html><body data-font='test'>"+header;
                   for(String type:new String[]{"Visionary","Fearmonger","Skinthief","Heavy Gunner"}) html+="<div class='opcard'><div class='grid'><div class='col-span-4'><h5><span class='truncate'>"+type+"</span></h5><div class='text-xs text-left'>"+type+"</div></div></div><div class='uppercase'><em>NEMESIS CLAW, CHAOS, "+type+"</em></div></div>";
-                  html+="</body></html>";final String fixture=html;
+                  html+="</body></html>";
+                  if(disableBridge)html=html.replace("class='uppercase'","class='late-team'").replace("<em>NEMESIS CLAW, CHAOS, ","<em>");
+                  final String fixture=html;
                   instrument.runOnMainSync(()->web.loadDataWithBaseURL("https://ktdash.app/rosters/runtime-probe",fixture,"text/html","UTF-8","https://ktdash.app/rosters/runtime-probe"));
                   long began=android.os.SystemClock.elapsedRealtime(); String report="";
                   for(int i=0;i<40;i++){
@@ -125,7 +129,7 @@ jobs:
           cat > ci/run-portrait-runtime.sh <<'SH'
           #!/bin/bash
           set -o pipefail
-          gradle --no-daemon -Pandroid.useAndroidX=true assembleDebug assembleDebugAndroidTest || exit $?
+          gradle --no-daemon -Pandroid.useAndroidX=true assembleDebug assembleRelease assembleDebugAndroidTest || exit $?
           if [ "$RUNTIME_BUILD" = "published-1.9" ]; then
             curl --fail --location --silent --show-error https://github.com/NamelessHero211/ktdash-android/releases/download/android-10/KTDash.apk --output downloaded.apk || exit $?
           elif [ "$RUNTIME_BUILD" = "candidate" ]; then
@@ -133,14 +137,14 @@ jobs:
             [ -n "$asset_url" ] || exit 1
             gh api -H 'Accept: application/octet-stream' "$asset_url" > downloaded.apk || exit $?
           else
-            cp app/build/outputs/apk/debug/app-debug.apk downloaded.apk
+            cp app/build/outputs/apk/release/app-release-unsigned.apk downloaded.apk
           fi
           sha256sum downloaded.apk
           keytool -genkeypair -keystore runtime-signing.jks -storepass android -keypass android -alias runtime -keyalg RSA -keysize 2048 -validity 30 -dname 'CN=Ephemeral Runtime Test' || exit $?
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks runtime-signing.jks --ks-key-alias runtime --ks-pass pass:android --key-pass pass:android --out verified-target.apk downloaded.apk || exit $?
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks runtime-signing.jks --ks-key-alias runtime --ks-pass pass:android --key-pass pass:android --out verified-tests.apk app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk || exit $?
           adb install -r verified-target.apk || exit $?
-          adb install -r verified-tests.apk || exit $?
+          adb install -r -t verified-tests.apk || exit $?
           adb shell am instrument -w -r app.ktdash.personal.test/androidx.test.runner.AndroidJUnitRunner | tee instrumentation.log
           grep -Eq 'OK \(3 tests?\)' instrumentation.log
           test_status=$?
@@ -178,3 +182,4 @@ jobs:
             instrumentation.log
             webview-runtime.log
             portrait-runtime.png
+            app/build/outputs/apk/release/app-release-unsigned.apk
