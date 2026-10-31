@@ -99,8 +99,18 @@
     var matches = {};
     roster.ops.forEach(function (op) {
       if (!op.opType || !catalog.ops[op.opTypeId]) return;
-      var full = op.opType.opTypeName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (full === name || full.endsWith(name)) matches[op.opTypeId] = catalog.ops[op.opTypeId];
+      var fullName = op.opType.opTypeName;
+      var shortName = fullName;
+      if (!team.id.includes('INQ')) {
+        ['Aquilon ', 'Arbites ', 'Battleclade ', 'Brood Brother ', 'Death Korps ', 'Fellgor ',
+          'Goremonger ', 'Hearthkyn ', 'Kabalite ', 'Kasrkin ', 'Kommando ', 'Kroot ', 'Legionary ',
+          'Mandrake ', 'Navis ', 'Night Lord ', 'Novitiate ', 'Plague Marine ', 'Plasmacyte ',
+          'Ratling ', 'Ravener ', 'Sanctifier ', 'Scout ', 'Space Hulk Veteran ', 'Traitor ',
+          'Vespid ', 'Voidscarred ', 'Warpdiver '].forEach(function (prefix) { shortName = shortName.replace(prefix, ''); });
+        shortName = shortName.replace(' Pathfinder', '');
+      }
+      var normalize = function (value) { return value.toLowerCase().replace(/[^a-z0-9]/g, ''); };
+      if (normalize(fullName) === name || normalize(shortName) === name) matches[op.opTypeId] = catalog.ops[op.opTypeId];
     });
     var ids = Object.keys(matches);
     return ids.length === 1 ? { id: ids[0], item: matches[ids[0]], catalog: catalog } : null;
