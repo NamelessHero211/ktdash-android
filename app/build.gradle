@@ -1,0 +1,23 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'app.ktdash.personal'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'app.ktdash.personal'
+        minSdk 26
+        targetSdk 35
+        versionCode providers.gradleProperty('appVersionCode').getOrElse('3').toInteger()
+        versionName providers.gradleProperty('appVersionName').getOrElse('1.2')
+    }
+    signingConfigs {
+        release {
+            if (System.getenv('ANDROID_KEYSTORE_PATH')) {
+                storeFile file(System.getenv('ANDROID_KEYSTORE_PATH'))
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias 'ktdash'
+                keyPassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes { release { minifyEnabled false; signingConfig signingConfigs.release } }
+}
