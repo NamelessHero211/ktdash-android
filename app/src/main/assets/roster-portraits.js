@@ -106,14 +106,17 @@
           'Goremonger ', 'Hearthkyn ', 'Kabalite ', 'Kasrkin ', 'Kommando ', 'Kroot ', 'Legionary ',
           'Mandrake ', 'Navis ', 'Night Lord ', 'Novitiate ', 'Plague Marine ', 'Plasmacyte ',
           'Ratling ', 'Ravener ', 'Sanctifier ', 'Scout ', 'Space Hulk Veteran ', 'Traitor ',
-          'Vespid ', 'Voidscarred ', 'Warpdiver '].forEach(function (prefix) { shortName = shortName.replace(prefix, ''); });
+          'Vespid ', 'Voidscarred ', 'Warpdiver ', 'Yaegir '].forEach(function (prefix) { shortName = shortName.replace(prefix, ''); });
         shortName = shortName.replace(' Pathfinder', '');
       }
       var normalize = function (value) { return value.toLowerCase().replace(/[^a-z0-9]/g, ''); };
       if (normalize(fullName) === name || normalize(shortName) === name) matches[op.opTypeId] = catalog.ops[op.opTypeId];
     });
     var ids = Object.keys(matches);
-    return ids.length === 1 ? { id: ids[0], item: matches[ids[0]], catalog: catalog } : null;
+    if (ids.length !== 1) return null;
+    var item = matches[ids[0]];
+    var atlas = item.atlas || team.id;
+    return { id: ids[0], item: item, atlas: atlas, catalog: window.__ktdashModelCatalog[atlas] || catalog };
   }
 
   function addArtwork(card, header, team) {
@@ -134,7 +137,7 @@
       tile.setAttribute('aria-label', model.item.name + ' official miniature reference');
       var scale = 78 / 256;
       tile.style.cssText = 'width:78px;height:78px;background-repeat:no-repeat;';
-      tile.style.backgroundImage = 'url("/_ktdash_android/models/1.6/' + team.id + '.webp")';
+      tile.style.backgroundImage = 'url("/_ktdash_android/models/1.6/' + model.atlas + '.webp")';
       tile.style.backgroundSize = model.catalog.width * scale + 'px ' + model.catalog.height * scale + 'px';
       tile.style.backgroundPosition = -model.item.x * scale + 'px ' + -model.item.y * scale + 'px';
       var modelCaption = document.createElement('figcaption');
