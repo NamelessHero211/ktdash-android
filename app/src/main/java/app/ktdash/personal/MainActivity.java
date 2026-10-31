@@ -39,29 +39,6 @@ public class MainActivity extends Activity {
         return "https".equalsIgnoreCase(uri.getScheme()) &&
             ("ktdash.app".equalsIgnoreCase(uri.getHost()) || "www.ktdash.app".equalsIgnoreCase(uri.getHost()));
     }
-    private static WebResourceResponse bundledModel(android.content.Context context, WebResourceRequest request) {
-        if (!trusted(request.getUrl()) || !"GET".equals(request.getMethod())) return null;
-        String path = request.getUrl().getPath();
-        if (path == null) return null;
-        String asset; String mime; String encoding;
-        if (path.equals("/_ktdash_android/models/1.7/catalog.json")) {
-            asset = "models/catalog.json"; mime = "application/json"; encoding = "UTF-8";
-        } else if (path.matches("/_ktdash_android/models/1\\.7/[A-Z0-9-]+\\.webp")) {
-            asset = "models/" + path.substring(path.lastIndexOf('/') + 1); mime = "image/webp"; encoding = null;
-        } else return null;
-        try {
-            return new WebResourceResponse(mime, encoding, 200, "OK",
-                java.util.Collections.singletonMap("Cache-Control", "public, max-age=31536000, immutable"), context.getAssets().open(asset));
-        } catch (java.io.IOException ignored) {
-            return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found",
-                java.util.Collections.emptyMap(), new java.io.ByteArrayInputStream(new byte[0]));
-        }
-    }
-    private static final class ModelServiceWorkerClient extends ServiceWorkerClient {
-        private final android.content.Context context;
-        ModelServiceWorkerClient(android.content.Context context) { this.context = context.getApplicationContext(); }
-        @Override public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) { return bundledModel(context, request); }
-    }
     private void external(Uri uri) {
         String scheme = uri.getScheme();
         if (scheme == null || !(scheme.equals("https") || scheme.equals("http") || scheme.equals("mailto") || scheme.equals("tel"))) return;
@@ -119,11 +96,8 @@ public class MainActivity extends Activity {
         settings.setSupportZoom(true); settings.setBuiltInZoomControls(true); settings.setDisplayZoomControls(false);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
-        ServiceWorkerController.getInstance().setServiceWorkerClient(new ModelServiceWorkerClient(getApplicationContext()));
+        web.addJavascriptInterface(new BundledModels(getApplicationContext()), "KTDashModelAssets");
         web.setWebViewClient(new WebViewClient() {
-            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                return bundledModel(getApplicationContext(), request);
-            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
                 if (trusted(request.getUrl())) return false;
