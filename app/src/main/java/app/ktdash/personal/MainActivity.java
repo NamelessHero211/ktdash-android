@@ -187,7 +187,11 @@ public class MainActivity extends Activity {
         super.onConfigurationChanged(config);
         web.invalidate(); web.requestApplyInsets();
     }
-    @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
+    @Override public void onBackPressed() {
+        web.evaluateJavascript("(function(){var v=window.__ktdashPictureViewer;return !!(v&&v.close());})()", closed -> {
+            if (!"true".equals(closed)) { if (web.canGoBack()) web.goBack(); else MainActivity.super.onBackPressed(); }
+        });
+    }
     @Override protected void onDestroy() {
         mainHandler.removeCallbacks(checkUpdates);
         if (files != null) files.onReceiveValue(null);
