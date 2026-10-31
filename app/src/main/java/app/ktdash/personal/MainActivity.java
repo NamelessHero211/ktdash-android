@@ -4,13 +4,21 @@ import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.res.Configuration;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
 import android.webkit.*;
 import android.widget.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private static final String HOME = "https://ktdash.app/";
@@ -21,6 +29,11 @@ public class MainActivity extends Activity {
     private String retryUrl = HOME;
     private boolean failed;
     private final AppUpdates updates = new AppUpdates();
+    private static final ExecutorService COOKIE_WRITER = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable checkUpdates = () -> updates.check(this, false);
+    private boolean resumed;
+    private boolean pageReady;
 
     private boolean trusted(Uri uri) {
         return "https".equalsIgnoreCase(uri.getScheme()) &&
@@ -34,33 +47,45 @@ public class MainActivity extends Activity {
     }
     private Button button(String label, LinearLayout row, View.OnClickListener action) {
         Button b = new Button(this); b.setText(label); b.setOnClickListener(action);
-        row.addView(b, new LinearLayout.LayoutParams(0, -2, 1)); return b;
+        styleButton(b);
+        LinearLayout.LayoutParams layout = new LinearLayout.LayoutParams(0, -2, 1);
+        layout.setMargins(dp(3),dp(3),dp(3),dp(3));
+        row.addView(b, layout); return b;
+    }
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    private void styleButton(Button b) {
+        b.setAllCaps(false); b.setTextColor(Color.BLACK); b.setTextSize(14);
+        b.setMinHeight(dp(48)); b.setPadding(dp(12),dp(8),dp(12),dp(8));
+        GradientDrawable box = new GradientDrawable(); box.setColor(AppTheme.ORANGE);
+        box.setCornerRadius(dp(8)); box.setStroke(dp(1), 0xFF7B2906);
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x33000000), box, null));
     }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(23,34,44));
+        root.setBackgroundColor(Color.BLACK);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
                 insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom()); return insets;
         });
         LinearLayout bar = new LinearLayout(this);
-        button("Home", bar, v -> web.loadUrl(HOME));
+        bar.setPadding(dp(3),dp(3),dp(3),dp(3));
+        button("Home", bar, v -> { if (!HOME.equals(web.getUrl())) web.loadUrl(HOME); });
         button("Reload", bar, v -> { if (failed) web.loadUrl(retryUrl); else web.reload(); });
-        button("Browser", bar, v -> external(Uri.parse(web.getUrl() == null ? HOME : web.getUrl())));
         button("Updates", bar, v -> updates.check(this, true));
         root.addView(bar);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setProgressTintList(ColorStateList.valueOf(AppTheme.ORANGE));
         root.addView(progress, new LinearLayout.LayoutParams(-1, 5));
         android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
         root.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
         web = new WebView(this); frame.addView(web, new android.widget.FrameLayout.LayoutParams(-1,-1));
         error = new LinearLayout(this); error.setOrientation(LinearLayout.VERTICAL);
         error.setGravity(android.view.Gravity.CENTER); error.setPadding(32,32,32,32);
-        error.setBackgroundColor(Color.rgb(23,34,44));
+        error.setBackgroundColor(AppTheme.ORANGE);
         TextView message = new TextView(this); message.setText("KTDash could not load.\nCheck your connection and try again.");
-        message.setTextColor(Color.WHITE); message.setTextSize(18); message.setGravity(17); error.addView(message);
-        Button retry = new Button(this); retry.setText("Try again"); retry.setOnClickListener(v -> web.loadUrl(retryUrl)); error.addView(retry);
+        message.setTextColor(Color.BLACK); message.setTextSize(18); message.setGravity(17); error.addView(message);
+        Button retry = new Button(this); retry.setText("Try again"); styleButton(retry); retry.setOnClickListener(v -> web.loadUrl(retryUrl)); error.addView(retry);
         frame.addView(error, new android.widget.FrameLayout.LayoutParams(-1,-1)); error.setVisibility(View.GONE);
         setContentView(root); root.requestApplyInsets();
         WebSettings settings = web.getSettings();
@@ -77,11 +102,18 @@ public class MainActivity extends Activity {
                 external(request.getUrl()); return true;
             }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+                pageReady = false; mainHandler.removeCallbacks(checkUpdates);
                 failed = false; if (trusted(Uri.parse(url))) retryUrl = url;
                 error.setVisibility(View.GONE); progress.setVisibility(View.VISIBLE);
             }
             @Override public void onPageFinished(WebView view, String url) {
-                progress.setVisibility(View.GONE); CookieManager.getInstance().flush();
+                if (trusted(Uri.parse(url))) AppTheme.apply(view);
+                progress.setVisibility(View.INVISIBLE);
+                pageReady = !failed;
+                scheduleUpdateCheck();
+            }
+            @Override public void onPageCommitVisible(WebView view, String url) {
+                if (trusted(Uri.parse(url))) AppTheme.apply(view);
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError detail) {
                 if (request.isForMainFrame()) showError();
@@ -91,7 +123,11 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
-            @Override public void onProgressChanged(WebView view, int value) { progress.setProgress(value); }
+            @Override public void onProgressChanged(WebView view, int value) {
+                progress.setProgress(value);
+                // Keep the bar's space reserved so the page does not jump while loading.
+                progress.setVisibility(value == 100 || failed ? View.INVISIBLE : View.VISIBLE);
+            }
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (files != null) files.onReceiveValue(null); files = callback;
                 try { startActivityForResult(params.createIntent(), 10); }
@@ -113,18 +149,43 @@ public class MainActivity extends Activity {
                 request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, System.currentTimeMillis()+"-"+name);
                 ((DownloadManager)getSystemService(DOWNLOAD_SERVICE)).enqueue(request);
                 Toast.makeText(this,"Download started — open it from the notification",0).show();
-            } catch (Exception e) { Toast.makeText(this,"Download unavailable. Try the Browser button.",1).show(); }
+            } catch (Exception e) { Toast.makeText(this,"Download unavailable. Please try again later.",1).show(); }
         });
         if (state == null || web.restoreState(state) == null) web.loadUrl(HOME);
     }
-    private void showError() { failed = true; progress.setVisibility(View.GONE); error.setVisibility(View.VISIBLE); }
+    private void scheduleUpdateCheck() {
+        mainHandler.removeCallbacks(checkUpdates);
+        if (resumed && pageReady) mainHandler.postDelayed(checkUpdates, 3000);
+    }
+    private void showError() {
+        failed = true; pageReady = false; mainHandler.removeCallbacks(checkUpdates);
+        progress.setVisibility(View.INVISIBLE); error.setVisibility(View.VISIBLE);
+    }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request,result,data);
         if (request == 10 && files != null) { files.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data)); files=null; }
     }
     @Override protected void onSaveInstanceState(Bundle out) { web.saveState(out); super.onSaveInstanceState(out); }
-    @Override protected void onPause() { web.onPause(); CookieManager.getInstance().flush(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); if (web != null) web.onResume(); updates.check(this, false); }
+    @Override protected void onPause() {
+        resumed = false; mainHandler.removeCallbacks(checkUpdates); web.onPause();
+        CookieManager cookies = CookieManager.getInstance();
+        // flush() performs disk I/O and blocks its caller; never run it on the UI thread.
+        COOKIE_WRITER.execute(cookies::flush);
+        super.onPause();
+    }
+    @Override protected void onResume() {
+        super.onResume(); resumed = true;
+        if (web != null) web.onResume();
+        scheduleUpdateCheck();
+    }
+    @Override public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config);
+        web.invalidate(); web.requestApplyInsets();
+    }
     @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
-    @Override protected void onDestroy() { if (files != null) files.onReceiveValue(null); web.destroy(); super.onDestroy(); }
+    @Override protected void onDestroy() {
+        mainHandler.removeCallbacks(checkUpdates);
+        if (files != null) files.onReceiveValue(null);
+        web.destroy(); super.onDestroy();
+    }
 }
