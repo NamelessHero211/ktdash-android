@@ -3,7 +3,7 @@
   if (window.__ktdashRosterPortraits) { window.__ktdashRosterPortraits.refresh(); return; }
   var routePattern = /^\/rosters\/([A-Za-z0-9_-]+)\/?$/;
   var route = null, metadata = null, metadataAttempted = false, metadataRequest = null;
-  var catalog = window.__ktdashModelCatalog || null, catalogPromise = null, indexes = {};
+  var catalog = window.__ktdashModelCatalog || null, catalogPromise = null, catalogRetry = null, catalogAttempts = 0, indexes = {}, atlases = {};
   var dirty = new Set(), fullScan = true, frame = null, watchedImages = new WeakSet(), preferences = {};
   var prefixes = ['Aquilon ', 'Arbites ', 'Battleclade ', 'Brood Brother ', 'Death Korps ',
     'Fellgor ', 'Goremonger ', 'Hearthkyn ', 'Kabalite ', 'Kasrkin ', 'Kommando ', 'Kroot ',
@@ -41,14 +41,23 @@
   }
   function scanAll() { fullScan = true; schedule(); }
   function loadCatalog() {
-    if (catalog || catalogPromise) return;
-    // This is a local APK resource. Matching models needs no roster/database request.
-    catalogPromise = fetch('/_ktdash_android/models/1.7/catalog.json', { credentials: 'omit', cache: 'force-cache' })
-      .then(function (response) { if (!response.ok) throw new Error('Model catalog unavailable'); return response.json(); })
-      .then(function (data) {
-        if (!data || typeof data !== 'object') throw new Error('Invalid model catalog');
-        catalog = data; window.__ktdashModelCatalog = data; indexes = {}; scanAll();
-      }).catch(function () { catalog = {}; scanAll(); });
+    if (catalog || catalogAttempts >= 3) return;
+    catalogAttempts++;
+    try {
+      // Native read-only APK assets: never go through HTTP, website caches or service workers.
+      var data = JSON.parse(window.KTDashModelAssets.catalog());
+      if (!data || typeof data !== 'object' || !Object.keys(data).length) throw new Error('Empty model catalog');
+      catalog = data; window.__ktdashModelCatalog = data; indexes = {};
+    } catch (_) {
+      // Keep this retryable; never turn a transport failure into a permanent empty catalog.
+      catalogPromise = true;
+      if (!catalogRetry && catalogAttempts < 3) catalogRetry = setTimeout(function () { catalogRetry = null; scanAll(); }, 2000);
+    }
+  }
+  function atlasUrl(id) {
+    if (atlases[id]) return atlases[id];
+    try { var image = window.KTDashModelAssets.atlas(id); if (image && image.indexOf('data:image/webp;base64,') === 0) { atlases[id] = image; return image; } } catch (_) {}
+    return '';
   }
   function teamDetails() {
     var links = document.querySelectorAll('a[href^="/killteams/"]'), fallback = null;
@@ -59,6 +68,11 @@
       if (catalog && catalog[team.id]) return team;
       if (!fallback) fallback = team;
     }
+    if (metadata && catalog && catalog[metadata.id]) return metadata;
+    var tags = document.querySelector('.opcard > .uppercase em, .opcard .uppercase em');
+    var keywords = tags ? tags.textContent.split(',').map(normalize) : [];
+    var found = catalog ? Object.keys(catalog).filter(function (id) { return keywords.indexOf(normalize(catalog[id].name)) !== -1; }) : [];
+    if (found.length === 1) return { id: found[0], name: catalog[found[0]].name, custom: false };
     return metadata || fallback;
   }
   function readMissingTeam(id) {
@@ -90,7 +104,7 @@
     Object.keys(records).forEach(function (id) {
       var item = records[id]; if (!item || !item.name) return;
       var atlas = item.atlas || team.id; if (!catalog[atlas]) return;
-      var entry = { id: id, item: item, atlas: atlas, sheet: catalog[atlas] }; add(item.name, entry);
+      var entry = { id: id, item: item, atlas: atlas, sheet: catalog[atlas] }; add(item.name, entry); add(item.label, entry);
       if (!team.id.includes('INQ')) {
         var short = item.name; prefixes.forEach(function (prefix) { short = short.replace(prefix, ''); });
         add(short.replace(' Pathfinder', ''), entry);
@@ -105,7 +119,9 @@
     var secondary = header.querySelector('.text-xs.text-left') || header.querySelector('.text-muted.text-xs');
     var type = preferences.showOpTypeFirst ? primary : secondary;
     if (!type) type = primary || secondary;
-    return type ? index[normalize(type.textContent.trim().replace(/^\d+\.\s*/, ''))] || null : null;
+    var other = type === primary ? secondary : primary;
+    function match(node) { return node ? index[normalize(node.textContent.trim().replace(/^\d+\.\s*/, ''))] || null : null; }
+    return match(type) || match(other);
   }
   function ensureStyle() {
     if (document.getElementById('ktdash-app-roster-portraits')) return;
@@ -113,9 +129,9 @@
     (document.head || document.documentElement).appendChild(style);
   }
   function addArtwork(card, header, team) {
-    var loadingCatalog = !catalog && catalogPromise;
+    var loadingCatalog = !catalog;
     var model = team && modelFor(card, team);
-    var key = loadingCatalog ? 'catalog-loading' : model ? model.id : team ? team.id : metadataRequest ? 'team-loading' : 'unavailable';
+    var key = loadingCatalog ? (catalogAttempts >= 3 ? 'catalog-unavailable' : 'catalog-loading') : model ? model.id : team ? team.id : metadataRequest ? 'team-loading' : 'unavailable';
     var old = header.querySelector('[data-ktdash-artwork]');
     if (old && old.dataset.ktdashArtwork === key) return;
     if (old) old.remove();
@@ -129,7 +145,9 @@
       var tile = document.createElement('div'); tile.className = 'ktdash-app-model';
       tile.setAttribute('role', 'img'); tile.setAttribute('aria-label', model.item.name + ' official miniature reference');
       var scale = 78 / 256;
-      tile.style.backgroundImage = 'url("/_ktdash_android/models/1.7/' + model.atlas + '.webp")';
+      var imageData = atlasUrl(model.atlas);
+      tile.style.backgroundImage = imageData ? 'url("' + imageData + '")' : 'none';
+      if (!imageData) { tile.textContent = 'Photo unavailable'; tile.classList.add('ktdash-app-artwork-unavailable'); }
       tile.style.backgroundRepeat = 'no-repeat';
       tile.style.backgroundSize = model.sheet.width * scale + 'px ' + model.sheet.height * scale + 'px';
       tile.style.backgroundPosition = -model.item.x * scale + 'px ' + -model.item.y * scale + 'px';
@@ -208,7 +226,7 @@
       });
     });
   });
-  window.__ktdashRosterPortraits = { refresh: scanAll, version: '1.7' };
+  window.__ktdashRosterPortraits = { refresh: scanAll, version: '1.8' };
   window.addEventListener('popstate', scanAll); window.addEventListener('pageshow', scanAll); window.addEventListener('load', scanAll);
   document.addEventListener('DOMContentLoaded', function () { observe(); scanAll(); });
   window.addEventListener('storage', function (event) { if (event.key === 'settings') { readPreferences(); scanAll(); } });
