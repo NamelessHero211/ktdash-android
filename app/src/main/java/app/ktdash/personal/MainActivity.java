@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private void styleButton(Button b) {
         b.setAllCaps(false); b.setTextColor(Color.BLACK); b.setTextSize(14);
+        b.setTypeface(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD);
         b.setMinHeight(dp(48)); b.setPadding(dp(12),dp(8),dp(12),dp(8));
         GradientDrawable box = new GradientDrawable(); box.setColor(AppTheme.ORANGE);
         box.setCornerRadius(dp(8)); box.setStroke(dp(2), Color.BLACK);
@@ -96,6 +97,23 @@ public class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         web.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (trusted(request.getUrl()) && "GET".equals(request.getMethod())) {
+                    String path = request.getUrl().getPath();
+                    if (path != null && path.matches("/_ktdash_android/models/1\\.6/[A-Z0-9-]+\\.webp")) {
+                        String name = path.substring(path.lastIndexOf('/') + 1);
+                        try {
+                            return new WebResourceResponse("image/webp", null, 200, "OK",
+                                java.util.Collections.singletonMap("Cache-Control", "public, max-age=31536000, immutable"),
+                                getAssets().open("models/" + name));
+                        } catch (java.io.IOException ignored) {
+                            return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found",
+                                java.util.Collections.emptyMap(), new java.io.ByteArrayInputStream(new byte[0]));
+                        }
+                    }
+                }
+                return null;
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
                 if (trusted(request.getUrl())) return false;
