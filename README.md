@@ -33,3 +33,6 @@ Use Java 17, Android SDK 35, and Gradle 8.9. This project uses Android Gradle Pl
 
 APK signatures, package metadata, alignment, and local Java/DEX compilation have been checked. Runtime login, navigation, uploads, downloads, and update prompts still need on-device verification.
 
+
+Version 1.5 shows uploaded operative portraits in deployed and reserve roster cards. When an operative has no photo, it shows the roster's kill-team artwork with a visible 'Kill-team artwork' label. Missing team art shows 'No artwork available'. Images load lazily; the app reads roster metadata once per roster visit and does not upload or alter any roster photos. This enables the website's portrait display preference locally in the app.
+
