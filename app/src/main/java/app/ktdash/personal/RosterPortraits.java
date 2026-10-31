@@ -16,10 +16,45 @@ final class RosterPortraits {
     private static volatile String viewer;
     private static volatile String catalogScript;
     private static volatile BundledModels modelAssets;
+    private static final java.util.Set<String> REQUESTS = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
+    // Read-only, asynchronous fallback for WebViews where the injected Java interface is unavailable.
+    // The page requests a public bundled asset by ID; no account/device APIs or arbitrary paths are exposed.
+    static boolean requestAsset(WebView web, String message) {
+        final String prefix = "KTDASH_PHOTO_ASSET:";
+        if (message == null || !message.startsWith(prefix) || !ready(web)) return false;
+        String token = message.substring(prefix.length());
+        boolean isCatalog = "catalog".equals(token);
+        if (!isCatalog && !token.matches("atlas:[A-Z0-9-]{1,64}")) return false;
+        String page = web.getUrl();
+        String key = System.identityHashCode(web) + ":" + page + ":" + token;
+        if (!REQUESTS.add(key)) return true;
+        Context context = web.getContext().getApplicationContext();
+        LOADER.execute(() -> {
+            try {
+                if (modelAssets == null) modelAssets = new BundledModels(context);
+                String script;
+                if (isCatalog) {
+                    String data = modelAssets.catalog();
+                    if (data.isEmpty()) return;
+                    script = "window.__ktdashModelCatalog=" + data + ";";
+                } else {
+                    String id = token.substring(6), image = modelAssets.atlas(id);
+                    if (image.isEmpty()) return;
+                    org.json.JSONObject data = new org.json.JSONObject();
+                    try { data.put(id, image); } catch (org.json.JSONException ignored) { return; }
+                    script = "window.__ktdashAtlasData=Object.assign(window.__ktdashAtlasData||{}," + data + ");";
+                }
+                String result = script + "if(window.__ktdashRosterPortraits)window.__ktdashRosterPortraits.refresh();";
+                web.post(() -> { if (ready(web) && page.equals(web.getUrl())) web.evaluateJavascript(result, null); });
+            } finally { REQUESTS.remove(key); }
+        });
+        return true;
+    }
     private static final String ATLAS_PROBE = "(function(){var c=window.__ktdashModelCatalog||{},teams=[],ids=[];" +
         "document.querySelectorAll('a[href^=\"/killteams/\"]').forEach(function(a){var id=a.getAttribute('href').split('/')[2];if(c[id]&&teams.indexOf(id)<0)teams.push(id)});" +
         "document.querySelectorAll('img[src*=\"/killteams/\"]').forEach(function(img){var m=img.getAttribute('src').match(/\\/killteams\\/([A-Z0-9-]+)/);if(m&&c[m[1]]&&teams.indexOf(m[1])<0)teams.push(m[1])});" +
-        "var tags=document.querySelector('.opcard .uppercase em');var words=tags?tags.textContent.toLowerCase().replace(/[^a-z0-9,]/g,'').split(','):[];" +
+        "var tags=document.querySelector('.opcard .uppercase em')||document.querySelector('.opcard > .uppercase');var words=tags?tags.textContent.toLowerCase().replace(/^\\s*\\d+\\s*/,'').replace(/[^a-z0-9,]/g,'').split(','):[];" +
         "Object.keys(c).forEach(function(id){if(words.indexOf(c[id].name.toLowerCase().replace(/[^a-z0-9]/g,''))>=0&&teams.indexOf(id)<0)teams.push(id)});" +
         "teams.slice(0,3).forEach(function(t){Object.keys(c[t].ops||{}).forEach(function(k){var id=c[t].ops[k].atlas||t;if(ids.indexOf(id)<0&&!(window.__ktdashAtlasData||{})[id])ids.push(id)})});return JSON.stringify(ids)})();";
     private static final String REFRESH = "(function(){var n=window.__ktdashRosterNavigation,p=window.__ktdashRosterPortraits;" +
