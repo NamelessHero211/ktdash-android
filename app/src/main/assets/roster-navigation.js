@@ -53,7 +53,7 @@
     var card = target.closest('.bg-card.group');
     if (!card) return;
     var links = Array.from(card.querySelectorAll('a[href]')).filter(function (a) { return rosterLink(a); });
-    if (links.length < 2 || links.some(function (a) { return a.href !== links[0].href; })) return;
+    if (!links.length || links.some(function (a) { return a.href !== links[0].href; })) return;
     links[0].click();
   });
   window.addEventListener('popstate', clear);
