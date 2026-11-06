@@ -3,6 +3,8 @@ package app.ktdash.personal;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.res.ColorStateList;
@@ -10,10 +12,12 @@ import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.view.View;
 import android.webkit.*;
 import android.widget.*;
@@ -26,6 +30,8 @@ public class MainActivity extends Activity {
     private ProgressBar progress;
     private LinearLayout error;
     private ValueCallback<Uri[]> files;
+    private Uri cameraPhotoUri;
+    private static final int PHOTO_PICKER_REQUEST = 10;
     private String retryUrl = HOME;
     private boolean failed;
     private final AppUpdates updates = new AppUpdates();
@@ -138,8 +144,21 @@ public class MainActivity extends Activity {
             }
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (files != null) files.onReceiveValue(null); files = callback;
-                try { startActivityForResult(params.createIntent(), 10); }
-                catch (ActivityNotFoundException e) { files.onReceiveValue(null); files = null; Toast.makeText(MainActivity.this,"No file picker available",0).show(); }
+                try {
+                    Intent picker = params.createIntent();
+                    if (acceptsImages(params)) {
+                        Intent camera = cameraIntent();
+                        if (camera != null) {
+                            Intent chooser = Intent.createChooser(picker, "Choose an operative photo");
+                            chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{camera});
+                            startActivityForResult(chooser, PHOTO_PICKER_REQUEST);
+                        } else startActivityForResult(picker, PHOTO_PICKER_REQUEST);
+                    } else startActivityForResult(picker, PHOTO_PICKER_REQUEST);
+                }
+                catch (ActivityNotFoundException | SecurityException e) {
+                    discardCameraPhoto(); files.onReceiveValue(null); files = null;
+                    Toast.makeText(MainActivity.this,"No photo picker available",Toast.LENGTH_SHORT).show();
+                }
                 return true;
             }
         });
@@ -169,9 +188,39 @@ public class MainActivity extends Activity {
         failed = true; pageReady = false; mainHandler.removeCallbacks(checkUpdates);
         progress.setVisibility(View.INVISIBLE); error.setVisibility(View.VISIBLE);
     }
+    private boolean acceptsImages(WebChromeClient.FileChooserParams params) {
+        String[] types = params.getAcceptTypes();
+        if (types == null || types.length == 0) return false;
+        for (String type : types) if (type != null && (type.equals("*/*") || type.startsWith("image/"))) return true;
+        return false;
+    }
+    private Intent cameraIntent() {
+        Intent capture = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        if (capture.resolveActivity(getPackageManager()) == null) return null;
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.DISPLAY_NAME, "ktdash-model-" + System.currentTimeMillis() + ".jpg");
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        if (Build.VERSION.SDK_INT >= 29) values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/KTDash");
+        cameraPhotoUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        if (cameraPhotoUri == null) return null;
+        capture.putExtra(MediaStore.EXTRA_OUTPUT, cameraPhotoUri);
+        capture.setClipData(ClipData.newRawUri("KTDash model photo", cameraPhotoUri));
+        capture.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        return capture;
+    }
+    private void discardCameraPhoto() {
+        Uri uri = cameraPhotoUri; cameraPhotoUri = null;
+        if (uri != null) try { getContentResolver().delete(uri, null, null); } catch (Exception ignored) {}
+    }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request,result,data);
-        if (request == 10 && files != null) { files.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data)); files=null; }
+        if (request == PHOTO_PICKER_REQUEST && files != null) {
+            Uri captured = cameraPhotoUri; cameraPhotoUri = null;
+            boolean tookPhoto = result == RESULT_OK && captured != null && (data == null || data.getData() == null);
+            Uri[] resultUris = tookPhoto ? new Uri[]{captured} : WebChromeClient.FileChooserParams.parseResult(result,data);
+            if (!tookPhoto && captured != null) try { getContentResolver().delete(captured, null, null); } catch (Exception ignored) {}
+            files.onReceiveValue(resultUris); files=null;
+        } else if (request == PHOTO_PICKER_REQUEST) discardCameraPhoto();
     }
     @Override protected void onSaveInstanceState(Bundle out) { web.saveState(out); super.onSaveInstanceState(out); }
     @Override protected void onPause() {
@@ -201,4 +250,3 @@ public class MainActivity extends Activity {
         web.destroy(); super.onDestroy();
     }
 }
-
